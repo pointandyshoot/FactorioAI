@@ -1,3 +1,18 @@
+# Version 0.1.1 hotfix validation
+
+The reported graphical-client startup failure came from a nonexistent
+`__base__/graphics/icons/character.png` reference. Human units now inherit the
+stock character prototype's icon definition, which in Factorio 2.0.77 points to
+`__core__/graphics/icons/entity/character.png`.
+
+Headless prototype loading does not validate graphics-file availability. The 0.1.0
+headless passes below therefore did not establish successful graphical startup.
+A graphical-client startup check is still required for 0.1.1.
+The integration runner now builds and installs the release ZIP instead of linking
+the source directory. The 0.1.1 packaged campaign suite passed on Factorio 2.0.77,
+including world creation, save reload, rail contracts, fluid transfer, suspicion
+and containment.
+
 # Version 0.1.0 validation
 
 Tested with the official **Factorio 2.0.77 Linux headless engine**, base game only,

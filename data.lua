@@ -16,7 +16,12 @@ data:extend({interface("fai-core", "0W", "250kW", "primary-input"),
 -- Human units use the vanilla engineer animations on the vanilla unit pathfinder.
 for i, name in ipairs({"fai-inspector", "fai-security", "fai-military"}) do
   local u = table.deepcopy(data.raw.unit["small-biter"])
-  u.name, u.icon = name, "__base__/graphics/icons/character.png"
+  u.name = name
+  -- Inherit the complete icon definition: the stock character icon lives in core,
+  -- and headless runs do not validate whether graphics files exist.
+  local character = data.raw.character.character
+  u.icon, u.icon_size = character.icon, character.icon_size
+  u.icons = character.icons and table.deepcopy(character.icons) or nil
   u.localised_name, u.factoriopedia_simulation = {"entity-name." .. name}, nil
   u.max_health, u.movement_speed = ({150, 250, 600})[i], 0.12
   u.run_animation = table.deepcopy(data.raw.character.character.animations[1].running)

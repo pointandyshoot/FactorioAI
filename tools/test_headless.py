@@ -17,21 +17,28 @@ assert case in ('campaign', 'escape', 'blackout', 'destroyed', 'starter')
 run = root / '.test-runtime' / case
 mods = run / 'mods'
 mods.mkdir(parents=True, exist_ok=True)
-for name, source in [('FactorioAI_0.1.0', root), ('FactorioAI-tests_0.1.0', root / 'tests/harness')]:
+# Exercise the same ZIP users install, rebuilding it from current source first.
+subprocess.run([sys.executable, str(root / 'tools/package.py')], check=True)
+info = json.loads((root / 'info.json').read_text())
+for old in mods.glob('FactorioAI_*'):
+    if old.is_symlink() or old.is_file():
+        old.unlink()
+    else:
+        shutil.rmtree(old)
+package = f"FactorioAI_{info['version']}.zip"
+shutil.copy2(root / 'dist' / package, mods / package)
+for name, source in [('FactorioAI-tests_0.1.0', root / 'tests/harness')]:
     target = mods / name
     if target.is_symlink():
         target.unlink()
     elif target.exists():
         shutil.rmtree(target)
-    if name.startswith('FactorioAI-tests'):
-        shutil.copytree(source, target)
-        settings = target / 'settings.lua'
-        settings.write_text(settings.read_text().replace('default_value="campaign"', f'default_value="{case}"'))
-        if case == 'starter':
-            updates = target / 'settings-updates.lua'
-            updates.write_text(updates.read_text().replace('default_value=5', 'default_value=30'))
-    else:
-        target.symlink_to(source, target_is_directory=True)
+    shutil.copytree(source, target)
+    settings = target / 'settings.lua'
+    settings.write_text(settings.read_text().replace('default_value="campaign"', f'default_value="{case}"'))
+    if case == 'starter':
+        updates = target / 'settings-updates.lua'
+        updates.write_text(updates.read_text().replace('default_value=5', 'default_value=30'))
 (mods / 'mod-list.json').write_text(json.dumps({'mods': [
     {'name': n, 'enabled': enabled} for n, enabled in
     [('base', True), ('FactorioAI', True), ('FactorioAI-tests', True),

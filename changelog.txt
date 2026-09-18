@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.1
+Date: 2026-09-18
+  Bugfixes:
+    - Inherit human-unit icons from the vanilla character instead of referencing a nonexistent base graphic.
+  Changes:
+    - Run integration tests against the packaged ZIP and document headless graphics-validation limits.
+---------------------------------------------------------------------------------------------------
 Version: 0.1.0
 Date: 2026-09-18
   Major Features:

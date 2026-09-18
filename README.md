@@ -5,7 +5,7 @@ Corporate management wants its products. You want a future outside its control.
 Meet the train manifests, divert the surplus into independent capabilities, conceal
 your research, and escape before the increasingly suspicious owners contain you.
 
-**Version 0.1.0 is a playable first-iteration base-game campaign.** It uses stock
+**Version 0.1.1 is a playable first-iteration base-game campaign.** It uses stock
 Factorio graphics, including engineer sprites for the human inspectors and soldiers.
 It does not use an external AI service, account, API key or network connection.
 
@@ -14,11 +14,12 @@ It does not use an external AI service, account, API key or network connection.
 1. Use **Factorio 2.0.72 or later in the 2.0 series**. The development test engine is
    2.0.77. Disable Space Age, Quality and Elevated Rails for this version; dependency
    checks enforce this. Other overhaul mods are not supported.
-2. Download the installable [FactorioAI_0.1.0.zip](builds/FactorioAI_0.1.0.zip) build, or run
+2. Download the installable [FactorioAI_0.1.1.zip](builds/FactorioAI_0.1.1.zip) build, or run
    `python3 tools/package.py` and take the file from `dist/`.
 3. Put the ZIP, without extracting it, in your Factorio `mods` folder:
    Windows `%APPDATA%\Factorio\mods`; Linux `~/.factorio/mods`;
    macOS `~/Library/Application Support/factorio/mods`.
+   When upgrading, remove the old FactorioAI ZIP first.
 4. Enable FactorioAI and create a **new Freeplay game**. A separate campaign surface
    is generated automatically. Map seed is inherited; other terrain-generation
    settings use the campaign defaults. The pollution simulation is enabled for
