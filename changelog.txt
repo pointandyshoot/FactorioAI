@@ -1,0 +1,8 @@
+---------------------------------------------------------------------------------------------------
+Version: 0.1.0
+Date: 2026-09-18
+  Major Features:
+    - Initial cooperative sentient factory campaign.
+    - Fixed escalating rail contracts and diminishing recipe-derived supplies.
+    - Local suspicion, human inspections, supply and power sanctions, armed containment.
+    - Shared AI core, satellite escape, campaign panel and diagnostic exports.

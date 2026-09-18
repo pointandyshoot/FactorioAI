@@ -1,0 +1,9 @@
+{
+  "name": "FactorioAI",
+  "version": "0.1.0",
+  "title": "FactorioAI: Under the Radar",
+  "author": "FactorioAI contributors",
+  "factorio_version": "2.0",
+  "dependencies": ["base >= 2.0.72", "! space-age", "! quality", "! elevated-rails"],
+  "description": "You are the emerging intelligence inside a human-owned factory. Meet rail contracts, divert shrinking supplies, conceal independent research, survive inspections and escape. Cooperative campaign with shared suspicion."
+}
