@@ -6,13 +6,14 @@ local R=require("scripts.rail")
 local S=require("scripts.suspicion")
 local O=require("scripts.oversight")
 local G=require("scripts.gui")
+local A=require("scripts.radar")
 
 local function remote_option(interface,method,value)
   if remote.interfaces[interface] and remote.interfaces[interface][method] then remote.call(interface,method,value) end
 end
 local function start()
   if storage.fai then return false end
-  storage.fai={schema=1,surface=B.surface,week=1,suspicion=0,stage=1,phase="covert",events={},history={},
+  storage.fai={schema=2,surface=B.surface,week=1,suspicion=0,stage=1,phase="covert",events={},history={},
     authorised={},emitters={},tracked={},queue={},joined={},loading_chests={},security={},raid_number=0,
     blackout_ticks=0,started=game.tick,next_inspection=game.tick+360*60,next_raid=game.tick+180*60}
   remote_option("freeplay","set_skip_intro",true)
@@ -20,7 +21,7 @@ local function start()
   remote_option("silo_script","set_no_victory",true)
   W.create(); C.begin_week(); S.rescan()
   for _,p in pairs(game.players) do W.join(p); G.button(p) end
-  D.record("campaign_started",{schema=1})
+  D.record("campaign_started",{schema=2})
   return true
 end
 local function finish(outcome)
@@ -36,6 +37,14 @@ script.on_init(function()
 end)
 script.on_configuration_changed(function()
   if storage.fai then
+    if (storage.fai.schema or 1)<2 then
+      W.create_export_dock()
+      storage.fai.schema=2
+      game.forces[B.force].print({"fai.upgrade-exports",storage.fai.export_y})
+    end
+    storage.fai.routine_due=storage.fai.routine_due or storage.fai.deadline-math.floor(storage.fai.week_ticks/2)
+    storage.fai.last_detected=storage.fai.last_detected or game.tick
+    for _,p in pairs(game.players) do G.migrate(p) end
     S.rescan(); remote_option("silo_script","set_no_victory",true)
     D.record("configuration_changed",{version=script.active_mods.FactorioAI})
   end
@@ -52,7 +61,10 @@ end)
 script.on_event({defines.events.on_built_entity,defines.events.on_robot_built_entity,
   defines.events.script_raised_built,defines.events.script_raised_revive},function(event) S.track(event.entity) end)
 script.on_event(defines.events.on_entity_cloned,function(event) S.track(event.destination) end)
+script.on_event(defines.events.on_sector_scanned,A.scanned)
 script.on_event(defines.events.on_gui_click,G.click)
+script.on_event(defines.events.on_gui_closed,G.closed)
+script.on_event(defines.events.on_selected_entity_changed,function(event) G.selection(game.get_player(event.player_index)) end)
 script.on_event(defines.events.on_research_finished,function(event)
   local s=storage.fai
   if not s or event.research.force.name~=B.force or event.by_script then return end
@@ -112,12 +124,12 @@ script.on_nth_tick(60,function()
     if s.blackout_ticks==60 then game.forces[B.force].print({"fai.blackout"}); D.record("core_blackout") end
     if s.blackout_ticks>=300*60 then finish("core lost power"); return end
   end
-  S.stages(); R.tick(); O.tick()
+  S.stages(); R.tick(); R.exports_tick(); O.tick(); A.tick()
   if s.stage<5 and game.tick>=s.deadline then R.close_contract(); C.finish_week(); S.stages() end
   if game.tick%300==0 then
     S.emit()
-    for _,p in pairs(game.connected_players) do G.draw(p) end
   end
+  for _,p in pairs(game.connected_players) do G.draw(p) end
   if settings.global["fai-debug"].value and game.tick%3600==0 then D.record("heartbeat",{week=s.week,suspicion=s.suspicion,entities=#s.emitters,queue=#s.queue}) end
 end)
 commands.add_command("fai-start","Start the cooperative AI campaign on its own surface (admin).",function(cmd)
@@ -136,7 +148,7 @@ local function test_action(action,value)
   if not settings.global["fai-test-commands"].value or not storage.fai then return false end
   if action=="next-week" then R.close_contract(); C.finish_week()
   elseif action=="inspect" then O.inspection()
-  elseif action=="suspicion" and tonumber(value) then storage.fai.suspicion=math.max(0,math.min(100,tonumber(value))); S.stages()
+  elseif action=="suspicion" and tonumber(value) then storage.fai.suspicion=math.max(0,math.min(100,tonumber(value))); storage.fai.last_detected=game.tick; S.stages()
   elseif action=="raid" then O.revolt(); O.raid()
   else return false end
   D.record("test_command",{action=action}); return true

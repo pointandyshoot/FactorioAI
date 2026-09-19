@@ -1,4 +1,5 @@
 local B = require("scripts.balance")
+local D = require("scripts.diagnostics")
 local W = {}
 function W.entity(name, x, y, direction, force)
   local e=game.surfaces[B.surface].create_entity{name=name, position={x,y}, direction=direction, force=force or B.force}
@@ -59,43 +60,11 @@ function W.create()
     W.entity("storage-tank",x-1,-39,defines.direction.north)
     for y=-37,-35 do W.entity("pipe",x,y) end
   end
-  -- Collection loading chests on the south side. Output filter arms will not unload circuits.
-  for _, x in ipairs({-7,0,7}) do
-    W.entity("bulk-inserter",x,-30,defines.direction.south)
-    local chest=W.entity("steel-chest",x,-29)
-    storage.fai.loading_chests[#storage.fai.loading_chests+1]=chest
-  end
-  label("SHARED RAIL EXCHANGE / load contract goods into south chests",{0,-46})
-  -- Eight operating starter cells. One cable assembler feeds one circuit assembler;
-  -- this deliberately leaves an obvious vanilla throughput optimisation available.
-  for row=0,3 do for col=0,1 do
-    local x,y=-52+col*18,-12+row*12
-    local cable=W.entity("assembling-machine-2",x,y); cable.set_recipe("copper-cable")
-    local circuit=W.entity("assembling-machine-2",x+4,y); circuit.set_recipe("electronic-circuit")
-    W.entity("fast-inserter",x+2,y,defines.direction.west)
-    local copper=W.entity("steel-chest",x,y+3); copper.insert{name="copper-plate",count=1050}
-    local iron=W.entity("steel-chest",x+4,y+3); iron.insert{name="iron-plate",count=700}
-    W.entity("fast-inserter",x,y+2,defines.direction.south)
-    W.entity("fast-inserter",x+4,y+2,defines.direction.south)
-    W.entity("fast-inserter",x+6,y,defines.direction.west)
-    W.entity("steel-chest",x+7,y)
-    W.entity("medium-electric-pole",x+2,y+3)
-    W.entity("medium-electric-pole",x+6,y+2)
-  end end
-  label("CIRCUIT CELLS / connect outputs to collection chests",{-39,37})
-  -- Grid spanning the site, leaving the player normal poles to extend and reorganise.
-  for x=-64,16,8 do for y=-24,40,8 do
-    local p=surface.find_non_colliding_position("medium-electric-pole",{x,y},2,0.5)
-    if p then W.entity("medium-electric-pole",p.x,p.y) end
-  end end
-  for _, x in ipairs({-7,0,7}) do W.entity("medium-electric-pole",x+2,-36) end
-  for _, x in ipairs({-7,0,7,14}) do W.entity("medium-electric-pole",x,-27) end
-  W.entity("medium-electric-pole",12,-34)
-  W.entity("medium-electric-pole",12,-26)
+  label("IMPORTS / solids and fluids",{0,-46})
   local core=W.entity("fai-core",-14,16); core.minable=false; core.operable=false
   local grid=W.entity("fai-grid",-14,24); grid.minable=false; grid.operable=false; grid.destructible=false
   storage.fai.core, storage.fai.grid=core,grid
-  label("AI CORE / keep powered and defended",{-14,13})
+  label("AI CORE",{-14,13})
   local stores={W.entity("steel-chest",-10,8),W.entity("steel-chest",-10,10)}
   local stock={["transport-belt"]=400,["underground-belt"]=40,splitter=30,["fast-inserter"]=80,
     ["assembling-machine-2"]=24,["medium-electric-pole"]=60,["steel-chest"]=24,lab=8,boiler=4,
@@ -108,6 +77,118 @@ function W.create()
     assert(remaining==0,"Construction stores too small for "..name)
   end
   label("CONSTRUCTION STORES",{-10,6})
+  W.create_export_dock(true)
+  W.production()
+  W.resources()
+  W.entity("substation",-12,-35)
+  W.entity("substation",4,-35)
+  for _,pos in ipairs({{8,54},{-8,72},{8,72},{24,72}}) do W.entity("substation",pos[1],pos[2]) end
+  -- A regular substation grid is part of the existing corporate facility, not
+  -- a technology grant. Positions avoid the machinery and belt lanes.
+  for x=-18,54,18 do for y=-42,66,18 do
+    local pos=surface.find_non_colliding_position("substation",{x,y},3,0.5)
+    if pos then W.entity("substation",pos.x,pos.y) end
+  end end
+end
+-- Pick a clear southern corridor on upgrades. Never remove player structures or
+-- inventories. Existing import-side collection chests remain for manual rerouting.
+function W.create_export_dock(fresh)
+  local s, surface=storage.fai,game.surfaces[B.surface]
+  if s.export_y then return end
+  local y=64
+  while true do
+    surface.request_to_generate_chunks({-80,y},5); surface.force_generate_chunk_requests()
+    local occupied=false
+    for _,e in pairs(surface.find_entities_filtered{area={{-214,y-8},{54,y+8}}}) do
+      if e.force.name~="neutral" or not ({tree=true,["simple-entity"]=true,resource=true,cliff=true,fish=true})[e.type] then
+        occupied=true; break
+      end
+    end
+    if not occupied then break end
+    y=y+32
+    assert(y<=4096,"No clear export corridor: please send the save for migration assistance")
+  end
+  local area={{-214,y-8},{54,y+8}}
+  for _,e in pairs(surface.find_entities_filtered{area=area}) do e.destroy() end
+  local tiles={}
+  for x=-214,54 do for yy=y-7,y+7 do tiles[#tiles+1]={name="grass-1",position={x,yy}} end end
+  surface.set_tiles(tiles)
+  for x=-210,50,2 do W.entity("straight-rail",x,y,defines.direction.east) end
+  local stop=W.entity("train-stop",16,y+2,defines.direction.east); stop.backer_name=B.export_station
+  s.export_stop,s.export_y,s.export_chests=stop,y,{}
+  for _,x in ipairs({-7,0,7}) do
+    W.entity("bulk-inserter",x,y+2,defines.direction.south)
+    s.export_chests[#s.export_chests+1]=W.entity("steel-chest",x,y+3)
+  end
+  if not fresh then
+    for yy=40,y+5,16 do
+      local pos=surface.find_non_colliding_position("substation",{24,yy},3,0.5)
+      if pos then W.entity("substation",pos.x,pos.y) end
+    end
+    for _,x in ipairs({-8,8,24}) do
+      local pos=surface.find_non_colliding_position("substation",{x,y+5},3,0.5)
+      if pos then W.entity("substation",pos.x,pos.y) end
+    end
+  end
+  label("EXPORTS / contract goods accepted continuously",{0,y-5})
+  game.forces[B.force].chart(surface,area)
+  D.record("export_dock_created",{y=y,station=B.export_station})
+end
+function W.production()
+  local surface=game.surfaces[B.surface]
+  local east,south,north=defines.direction.east,defines.direction.south,defines.direction.north
+  local function belt(x,y,d) return W.entity("transport-belt",x,y,d) end
+  for x=21,28 do belt(x,-24,east) end
+  for x=21,24 do belt(x,-22,east) end
+  -- Two feed buses. Iron goes underground where copper branches cross it.
+  for y=-21,19 do belt(24,y,south) end
+  for y=-23,23 do
+    if not ((y>=1 and y<=5) or (y>=17 and y<=21)) then belt(28,y,south) end
+  end
+  for _,y in ipairs({0,16}) do
+    surface.create_entity{name="underground-belt",position={28,y+1},direction=south,type="input",force=B.force}
+    surface.create_entity{name="underground-belt",position={28,y+5},direction=south,type="output",force=B.force}
+    for x=25,34 do belt(x,y+3,east) end
+    for x=29,38 do belt(x,y+7,east) end
+    for yy=y+3,y+6 do belt(38,yy,north) end
+    -- Turn feed endpoints into the branch directions.
+    surface.find_entity("transport-belt",{(28)+0.5,(y+7)+0.5}).direction=east
+    surface.find_entity("transport-belt",{(38)+0.5,(y+7)+0.5}).direction=north
+    local cable=W.entity("assembling-machine-2",34,y); cable.set_recipe("copper-cable")
+    local circuit=W.entity("assembling-machine-2",38,y); circuit.set_recipe("electronic-circuit")
+    W.entity("fast-inserter",34,y+2,south)
+    W.entity("fast-inserter",38,y+2,south)
+    W.entity("bulk-inserter",36,y,defines.direction.west)
+    W.entity("fast-inserter",40,y,defines.direction.west)
+    for x=41,43 do belt(x,y,east) end
+  end
+  -- Iron continues south at the first branch; a splitter shares it between cells.
+  local first=surface.find_entity("transport-belt",{(28)+0.5,(6)+0.5}); first.destroy()
+  W.entity("splitter",28.5,6,south)
+  surface.find_entity("transport-belt",{(28)+0.5,(7)+0.5}).direction=south
+  surface.find_entity("transport-belt",{(28)+0.5,(-24)+0.5}).direction=south
+  surface.find_entity("transport-belt",{(24)+0.5,(-22)+0.5}).direction=south
+  surface.find_entity("transport-belt",{(24)+0.5,(2)+0.5}).destroy()
+  W.entity("splitter",24.5,2,south)
+  surface.find_entity("transport-belt",{(24)+0.5,(19)+0.5}).direction=east
+  for y=0,69 do belt(44,y,south) end
+  for x=7,44 do belt(x,70,defines.direction.west) end
+  surface.find_entity("transport-belt",{(7)+0.5,(70)+0.5}).direction=north
+  belt(7,69,north)
+  W.entity("fast-inserter",7,68,south)
+  label("CIRCUIT PRODUCTION",{37,-5})
+end
+function W.resources()
+  local surface=game.surfaces[B.surface]
+  for _,patch in ipairs({{"iron-ore",-90,4},{"copper-ore",-114,4},{"coal",-90,28},{"stone",-114,28}}) do
+    for dx=-6,6 do for dy=-6,6 do
+      if dx*dx+dy*dy<=36 then surface.create_entity{name=patch[1],position={patch[2]+dx,patch[3]+dy},amount=3000} end
+    end end
+  end
+  local water={}
+  for x=-120,-99 do for y=43,53 do water[#water+1]={name="water",position={x,y}} end end
+  surface.set_tiles(water)
+  surface.create_entity{name="crude-oil",position={-75,28},amount=100000}
 end
 function W.join(player)
   local s=storage.fai

@@ -1,4 +1,20 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.2.0
+Date: 2026-09-18
+  Features:
+    - Connected starting factory with a substation grid, separate import/export lines and nearby resources and water.
+    - Ten-minute default weeks; green-circuit improvement in week two and red circuits in week three.
+    - Continuous exports and a collapsible tracker with product and week progress bars.
+    - Suspicion tooltips and a live selected-machine readout.
+    - Scheduled routine inspections, specific corporate warnings, quiet-period recovery and radar contact alerts.
+  Changes:
+    - Less directive introduction and player help; future consequences are left to discover.
+    - Removed the independence declaration and military arrival announcements.
+  Bugfixes:
+    - Register the campaign window with the normal close-window controls.
+    - Remove the invalid GUI reference crash from the former confirmation dialog.
+    - Preserve existing contracts, research and buildings when adding the export dock to older saves.
+---------------------------------------------------------------------------------------------------
 Version: 0.1.1
 Date: 2026-09-18
   Bugfixes:

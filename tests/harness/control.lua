@@ -11,9 +11,9 @@ script.on_event(defines.events.on_rocket_launched,function()
   end
 end)
 script.on_init(function()
-  check(B.manifest(1)["electronic-circuit"]==5000,"first contract")
-  check(B.manifest(2)["advanced-circuit"]==100,"introductory red circuits")
-  check(B.manifest(3)["advanced-circuit"]==5000,"red circuit ramp")
+  check(B.manifest(1)["electronic-circuit"]==900,"first contract")
+  check(B.manifest(2)["electronic-circuit"]==1600 and not B.manifest(2)["advanced-circuit"],"week two throughput challenge")
+  check(B.manifest(3)["advanced-circuit"]==100,"week three red circuits")
   check(B.supply_ratio(1,1)>1 and math.abs(B.supply_ratio(19,1)-1)<0.001 and B.supply_ratio(20,1)<1,"supply crossover")
   check(B.stage(0,5)==5 and B.stage(0,3)==1,"discovery permanence")
   local missing, ratio=B.shortfall({a=10,b=10},{a=99,b=5,c=1000})
@@ -37,19 +37,66 @@ script.on_nth_tick(60,function()
       pass("core destruction defeat"); storage.done=true
     elseif mode=="escape" then
       game.forces[B.force].research_all_technologies()
-      local silo=surface.create_entity{name="rocket-silo",position={40,16},force=B.force}
+      local silo=surface.create_entity{name="rocket-silo",position={60,-60},force=B.force}
       silo.set_recipe("rocket-part"); silo.rocket_parts=100
-      local grid=surface.create_entity{name="fai-grid",position={47,16},force=B.force}
-      surface.create_entity{name="substation",position={46,20},force=B.force}
+      local grid=surface.create_entity{name="fai-grid",position={68,-60},force=B.force}
+      surface.create_entity{name="substation",position={66,-54},force=B.force}
       storage.silo=silo; storage.grid=grid
       check(silo.get_inventory(defines.inventory.rocket_silo_rocket).insert{name="satellite",count=1}==1,"payload inserted")
     elseif mode=="campaign" then
       -- Enough real cargo for a successful first contract; testing shipping, not fabricated ledger credit.
-      for _,pos in ipairs({{-7,-29},{0,-29},{7,-29}}) do
+      for _,pos in ipairs({{-7,s.export_y+3},{0,s.export_y+3},{7,s.export_y+3}}) do
         local chest=surface.find_entities_filtered{name="steel-chest",position=pos,radius=1}[1]
-        check(chest,"loading chest exists"); chest.insert{name="electronic-circuit",count=2000}
+        check(chest,"loading chest exists"); chest.insert{name="electronic-circuit",count=400}
       end
     end
+  end
+  if mode=="oversight" then
+    if tick==60 then
+      action("suspicion",10)
+      surface.create_entity{name="fai-security",position={70,40},force="fai-corporate"}
+      for x=-4,4 do for y=-4,4 do
+        if math.abs(x)==4 or math.abs(y)==4 then
+          local pos=surface.find_non_colliding_position("fai-security",{x*32+16,y*32+16},5,0.5)
+          if pos then surface.create_entity{name="fai-security",position=pos,force="fai-corporate"} end
+        end
+      end end
+    elseif tick==120 then
+      check(s.radar_contacts==0,"no radar means no human proximity warnings")
+    elseif tick==7260 then
+      check(s.suspicion<10,"quiet period gradually restores confidence")
+      storage.radar=surface.create_entity{name="radar",position={4,30},force=B.force,raise_built=true}
+      check(storage.radar,"radar created")
+    elseif tick==9000 then
+      local near,sector=false,false
+      for _,e in ipairs(s.recent_events) do
+        if e.kind=="radar_contact" then
+          near=near or e.details.source=="nearby"; sector=sector or e.details.source=="sector"
+        end
+      end
+      check(near,"working radar spots humans in actively revealed chunks")
+      check(sector,"real sector scans spot distant humans")
+      storage.contact_count=s.radar_contacts; storage.radar.active=false
+      surface.create_entity{name="fai-security",position={50,50},force="fai-corporate"}
+    elseif tick==9600 then
+      check(s.radar_contacts==storage.contact_count,"disabled radar and historical charting do not reveal new humans")
+      storage.radar.destroy()
+      local inspector=surface.find_entities_filtered{name="fai-inspector"}[1]
+      check(inspector,"routine inspection begins halfway through week")
+      inspector.teleport({60,50})
+      storage.lab=surface.create_entity{name="lab",position={62,52},force=B.force,raise_built=true}
+      surface.pollute({60,50},100); storage.before=s.suspicion
+    elseif tick==9660 then
+      local warned=false
+      for _,e in ipairs(s.recent_events) do if e.kind=="activity_warning" and e.details.entity=="lab" then warned=true end end
+      check(warned and s.suspicion>storage.before,"inspector identifies observed lab and adds suspicion")
+      storage.lab.destroy(); surface.clear_pollution(); action("suspicion",10)
+    elseif tick==17040 then
+      check(s.suspicion<10,"removing evidence allows quiet recovery")
+      pass("OVERSIGHT SUITE COMPLETE: timed inspection, specific warning, recovery, nearby and scanned radar contacts, disabled radar")
+      storage.done=true
+    end
+    return
   end
   if mode=="escape" then
     if storage.silo and storage.silo.valid and not storage.launched then storage.launched=storage.silo.launch_rocket() end
@@ -58,23 +105,27 @@ script.on_nth_tick(60,function()
     return
   end
   if mode=="blackout" then
+    if tick%3600==0 then action("suspicion",60) end
     if tick==600 then check(s.stage==4 and surface.find_entities_filtered{name="fai-grid"}[1].power_production==0,"corporate power cut") end
     if tick>=21660 then check(s.outcome=="core lost power","blackout defeat timer"); pass("power isolation and blackout defeat"); storage.done=true end
     return
   end
   if mode=="starter" then
-    if tick==6000 or tick==108000 then
-      for _,e in pairs(surface.find_entities_filtered{name="assembling-machine-2"}) do
-        log("FAI CELL "..helpers.table_to_json({position=e.position,recipe=e.get_recipe().name,
-          energy=e.energy,status=e.status,products=e.products_finished,
-          input=e.get_inventory(defines.inventory.crafter_input).get_contents(),
-          output=e.get_inventory(defines.inventory.crafter_output).get_contents()}))
+    if tick==36060 then
+      check(s.week==2 and s.history[1].success,"unattended real-train factory fulfils week one")
+      check(s.history[1].delivered["electronic-circuit"]==900,"first order physically exported")
+      check(surface.count_entities_filtered{name="medium-electric-pole"}==0,"new factory uses substations")
+      check(surface.count_entities_filtered{name="substation"}>0,"substation grid exists")
+      for _,name in ipairs({"iron-ore","copper-ore","coal","stone","crude-oil"}) do
+        check(surface.count_entities_filtered{name=name,area={{-122,-4},{-68,38}}}>0,"nearby resource "..name)
       end
-    end
-    if tick==108000 then
-      local produced=game.forces[B.force].get_item_production_statistics(surface).get_input_count("electronic-circuit")
-      check(produced>=5000,"stock factory meets the default first order without synthetic inputs; produced "..produced)
-      pass("starter factory produced "..produced.." circuits within 30 minutes")
+      check(surface.get_tile(-110,48).name=="water","nearby pond")
+      pass("unattended first week: train inputs through factory to credited exports; substations, resources and water")
+    elseif tick==72060 then
+      check(s.week==3 and not s.history[2].success,"unchanged factory needs week two improvement")
+      check(s.required["advanced-circuit"]==100,"week three introduces red circuits")
+      check(game.forces[B.force].recipes["advanced-circuit"].enabled,"red circuits commissioned in week three")
+      pass("OPENING SUITE COMPLETE: week one automatic; week two requires improvement; red circuits in week three")
       storage.done=true
     end
     return
@@ -87,7 +138,20 @@ script.on_nth_tick(60,function()
         target=e.drop_target and e.drop_target.name,source=e.pickup_target and e.pickup_target.name}))
     end
   end
+  if tick==6000 then
+    check(s.export_train and s.export_train.arrived,"export train physically docked")
+    check((s.delivered["electronic-circuit"] or 0)==900,"full credit before old final-quarter window")
+    check(s.export_y>=64,"separate southern export station")
+    local surplus=0
+    for _,e in pairs(surface.find_entities_filtered{type="cargo-wagon",area={{-20,s.export_y-2},{20,s.export_y+2}}}) do
+      surplus=surplus+e.get_item_count("electronic-circuit")
+    end
+    check(surplus>=300,"excess exports retained without overcredit or destruction")
+    storage.early_delivered=s.delivered["electronic-circuit"]
+    pass("continuous exports, quota cap and retained surplus before final quarter")
+  end
   if tick==12000 then
+    check(s.delivered["electronic-circuit"]==storage.early_delivered,"repeated export ticks do not double-credit")
     local produced=game.forces[B.force].get_item_production_statistics(surface).get_input_count("electronic-circuit")
     check(produced>100,"starter factory actually produces")
     check(s.core_energy>1000 and not s.outcome,"starter electricity reaches core")
@@ -102,8 +166,10 @@ script.on_nth_tick(60,function()
     pass("starter production, electricity, supply train round trip")
   end
   if tick==18120 then
-    check(s.week==2 and s.history[1].success,"collection of 5000 circuits before deadline")
-    check(s.required["advanced-circuit"]==100,"week two manifest")
+    check(s.week==2 and s.history[1].success,"collection of first quota before deadline")
+    check((s.delivered["electronic-circuit"] or 0)>=300,"retained surplus credited once to the new week")
+    check(not s.required["advanced-circuit"],"week two contains only green circuits")
+    action("next-week")
     check(game.forces[B.force].recipes["advanced-circuit"].enabled,"commissioned production authorised")
     pass("collection, exact quotas and automatic research authorisation")
     -- Replace shared receiving tanks with empty ones before the first fluid delivery.
@@ -115,10 +181,11 @@ script.on_nth_tick(60,function()
     end
     for _, tank in pairs(surface.find_entities_filtered{name="storage-tank"}) do for _,amount in pairs(tank.get_fluid_contents()) do fluids=fluids+amount end end
     check(fluids>0,"fluid wagons unload through physical pumps")
-    pass("shared station fluid transfer")
+    pass("import station fluid transfer")
     -- Hidden lab produces local evidence, without remotely increasing the suspicion score.
     local lab=surface.create_entity{name="lab",position={60,50},force=B.force,raise_built=true}
     storage.test_lab=lab; storage.before_heat=surface.get_pollution(lab.position); storage.before_score=s.suspicion
+    action("inspect")
     local inspector=surface.find_entities_filtered{name="fai-inspector"}[1]
     check(inspector,"inspector patrol is physically present")
     surface.pollute(inspector.position,100)
@@ -128,11 +195,11 @@ script.on_nth_tick(60,function()
     check(s.suspicion>storage.before_score,"inspector converts nearby evidence into suspicion")
     pass("spatial building suspicion")
     -- Exercise all recipe manifests, including oil and electric engine chains.
-    for i=3,12 do action("next-week") end
+    for i=4,15 do action("next-week") end
     action("suspicion",0)
-    check(status().week==12,"all ten later bills of materials resolve")
+    check(status().week==15,"later bills of materials resolve")
     check(status().required["rocket-fuel"]>0,"late contracts")
-    pass("week 3–12 progression and supply bill of materials")
+    pass("week 3–15 progression and supply bill of materials")
     -- Pre-discovery sanctions can recover, but open rebellion cannot.
     action("suspicion",40); check(status().stage==3,"supply sanctions")
     action("suspicion",0); check(status().stage==1,"pre-discovery recovery")

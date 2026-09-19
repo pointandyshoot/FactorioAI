@@ -15,21 +15,18 @@ function S.rescan()
   local s=storage.fai; s.emitters={}; s.tracked={}
   for _,e in pairs(game.surfaces[B.surface].find_entities_filtered{force=B.force}) do S.track(e) end
 end
-local function authorised_support(recipe)
-  -- Ordinary infrastructure modifications are allowed; secrecy comes from independent capabilities.
-  local list={ ["iron-gear-wheel"]=true, ["iron-stick"]=true,["steel-plate"]=true,["stone-brick"]=true,
-    ["transport-belt"]=true,["underground-belt"]=true,splitter=true,inserter=true,["fast-inserter"]=true,
-    ["medium-electric-pole"]=true,["small-electric-pole"]=true,["big-electric-pole"]=true,
-    ["steel-chest"]=true,["iron-chest"]=true,["wooden-chest"]=true,pipe=true,["pipe-to-ground"]=true,
-    ["assembling-machine-1"]=true,["assembling-machine-2"]=true,rail=true,["train-stop"]=true,
-    ["rail-signal"]=true,["rail-chain-signal"]=true,["repair-pack"]=true,["stone-furnace"]=true,
-    ["steel-furnace"]=true,["iron-plate"]=true,["copper-plate"]=true}
-  return list[recipe]
-end
 function S.recipe_risk(name)
-  if storage.fai.authorised[name] or authorised_support(name) then return 0 end
-  if name:find("science%-pack") then return 0.15 end
-  return 0.04
+  return B.recipe_risk(name, storage.fai.authorised)
+end
+function S.details(e)
+  if not e or not e.valid or not storage.fai then return nil end
+  local multiplier=settings.global["fai-suspicion-multiplier"].value
+  local base=(B.building_heat[e.name] or 0)*multiplier
+  local research=e.type=="lab" and e.status==defines.entity_status.working and game.forces[B.force].current_research
+  local recipe=crafting[e.type] and e.get_recipe() or nil
+  return {base=base, research=research and 1.44*multiplier or 0,
+    pulse=e.type=="lab" and 2*multiplier or 0, recipe=recipe and recipe.name,
+    per_craft=recipe and S.recipe_risk(recipe.name)*multiplier or 0}
 end
 function S.emit()
   local s, surface=storage.fai,game.surfaces[B.surface]
@@ -53,6 +50,7 @@ function S.emit()
 end
 function S.add(amount,reason)
   local s=storage.fai; s.suspicion=math.max(0,math.min(100,s.suspicion+amount))
+  if amount>0 then s.last_detected=game.tick end
   D.record("suspicion",{delta=amount,reason=reason,total=s.suspicion})
 end
 function S.stages()
@@ -61,7 +59,7 @@ function S.stages()
   if next_stage~=s.stage then
     s.stage=next_stage
     D.record("stage_changed",{stage=s.stage,name=B.stage_names[s.stage]})
-    game.forces[B.force].print({"fai.stage",B.stage_names[s.stage]})
+    if s.stage<5 then game.forces[B.force].print({"fai.stage-"..s.stage}) end
     if s.stage>=5 then
       s.phase="discovered"; s.queue={}
       local a,b=game.forces[B.force],game.forces["fai-corporate"]

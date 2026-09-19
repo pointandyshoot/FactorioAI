@@ -42,21 +42,23 @@ local function collect(d)
   D.record("collection",{week=d.week,delivered=s.delivered})
 end
 function R.close_contract()
+  R.collect_exports()
   local d=storage.fai.delivery
   if d and d.train.valid and d.kind=="collection" and d.arrived then collect(d) end
 end
 local function make_train(job)
   local s, surface=storage.fai,game.surfaces[B.surface]
   -- Spawn only at the corporate boundary; a blocked track waits instead of overwriting entities.
+  local y=job.kind=="export" and s.export_y or -32
   local positions={-154,-161,-168,-175,-182}
   for i,x in ipairs(positions) do
     local name=(i==1 or i==5) and "locomotive" or (job.kind=="fluid" and "fluid-wagon" or "cargo-wagon")
-    if not surface.can_place_entity{name=name,position={x,-32},direction=defines.direction.east,force=B.force} then return nil end
+    if not surface.can_place_entity{name=name,position={x,y},direction=defines.direction.east,force=B.force} then return nil end
   end
   local vehicles={}
   for i,x in ipairs(positions) do
     local name=(i==1 or i==5) and "locomotive" or (job.kind=="fluid" and "fluid-wagon" or "cargo-wagon")
-    local e=surface.create_entity{name=name,position={x,-32},direction=i==5 and defines.direction.west or defines.direction.east,force=B.force}
+    local e=surface.create_entity{name=name,position={x,y},direction=i==5 and defines.direction.west or defines.direction.east,force=B.force}
     if not e then for _, v in ipairs(vehicles) do if v.valid then v.destroy() end end; return nil end
     vehicles[#vehicles+1]=e
     e.minable=false; e.operable=false
@@ -97,12 +99,81 @@ local function make_train(job)
   end
   -- All human deliveries use exactly one public name; depot is an off-site exit, never a delivery target.
   train.schedule={current=1,records={
-    {station=B.station,wait_conditions={{type="time",compare_type="and",ticks=job.kind=="collection" and 90*60 or 60*60}}},
+    {station=job.kind=="export" and B.export_station or B.station,wait_conditions={{type="time",compare_type="and",ticks=job.kind=="collection" and 90*60 or 60*60}}},
     {station=B.depot,wait_conditions={{type="time",compare_type="and",ticks=60*60}}}}}
   train.manual_mode=false
   job.train,job.spawn_tick,job.vehicles=train,game.tick,vehicles
   D.record("train_dispatched",{kind=job.kind,week=job.week,fluid=job.fluid,amount=job.amount,items=job.items})
   return job
+end
+local function export_filters(d)
+  local s=storage.fai
+  if d.filter_week==s.week then return end
+  local names=B.sorted_keys(s.required)
+  for _,wagon in ipairs(d.train.cargo_wagons) do
+    local inv=wagon.get_inventory(defines.inventory.cargo_wagon)
+    for i=1,#inv do
+      -- Retain surplus cargo instead of deleting it at the weekly rollover.
+      inv.set_filter(i,inv[i].valid_for_read and inv[i].name or names[(i-1)%#names+1])
+    end
+  end
+  d.filter_week=s.week
+end
+function R.collect_exports()
+  local s=storage.fai
+  local d=s.export_delivery
+  if not d or not d.train.valid or s.stage>=5 then return end
+  local train=d.train
+  -- Actual stop presence is checked every time; moving the train never credits
+  -- cargo remotely. Goods are consumed exactly once, up to the current quota.
+  if not train.station or train.station.backer_name~=B.export_station then return end
+  export_filters(d)
+  local added=0
+  for _,wagon in ipairs(train.cargo_wagons) do
+    local inv=wagon.get_inventory(defines.inventory.cargo_wagon)
+    for _,name in ipairs(B.sorted_keys(s.required)) do
+      local remaining=math.max(0,s.required[name]-(s.delivered[name] or 0))
+      local n=remaining>0 and inv.remove{name=name,count=remaining} or 0
+      s.delivered[name]=(s.delivered[name] or 0)+n; added=added+n
+    end
+  end
+  if added>0 then
+    local missing=B.shortfall(s.required,s.delivered)
+    local complete=not next(missing)
+    if complete or not d.last_log or game.tick-d.last_log>=1800 then
+      D.record("export_credit",{week=s.week,delivered=s.delivered,complete=complete})
+      d.last_log=game.tick
+    end
+  end
+end
+function R.exports_tick()
+  local s=storage.fai
+  local d=s.export_delivery
+  if d and (not d.train.valid or #d.train.carriages~=5) then
+    -- Do not destroy surviving cargo after an accident. Avoid spawning over it.
+    D.record("export_train_lost",{}); s.export_delivery=nil
+    s.suspicion=math.min(100,s.suspicion+15); d=nil
+  end
+  if s.stage>=5 then return end
+  if not d then
+    s.export_delivery=make_train{kind="export",week=s.week}
+    if s.export_delivery then export_filters(s.export_delivery) end
+    return
+  end
+  local t=d.train
+  if t.station and t.station.backer_name==B.export_station and t.state==defines.train_state.wait_station then
+    -- The corporate receiving consist stays at the dock, using a normal circuit
+    -- wait condition that is always false. No custom inserters or loaders.
+    if not d.arrived then
+      d.arrived=true
+      t.schedule={current=1,records={{station=B.export_station,wait_conditions={{type="circuit",compare_type="and",
+        condition={comparator=">",constant=2147483647,first_signal={type="virtual",name="signal-A"}}}}}}}
+      D.record("export_train_arrived",{y=s.export_y})
+    end
+    R.collect_exports()
+  elseif game.tick-d.spawn_tick>18000 and not d.warned then
+    d.warned=true; D.record("export_train_blocked",{state=t.state}); game.forces[B.force].print({"fai.train-blocked"})
+  end
 end
 function R.tick()
   local s=storage.fai
@@ -149,11 +220,7 @@ function R.tick()
     return
   end
   if s.stage>=5 then return end
-  local missing=B.shortfall(s.required,s.delivered)
-  local job
-  if game.tick>=s.collection_due and next(missing) then
-    job={kind="collection",week=s.week}; s.collection_sent=true
-  elseif #s.queue>0 and game.tick+90*60<=s.collection_due then job=s.queue[1] end
+  local job=s.queue[1]
   if job then
     local spawned=make_train(job)
     if spawned then s.delivery=spawned; if job==s.queue[1] then table.remove(s.queue,1) end

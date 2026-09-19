@@ -1,88 +1,79 @@
-# Testing and troubleshooting
+# Developer testing — contains gameplay spoilers
 
-## Automated engine checks
-
-Obtain the official Factorio 2.0.77 headless build. No proprietary binaries are
-included here. With Python 3 available:
+Use the official Factorio 2.0.77 headless binary and Python 3:
 
 ```sh
+python3 tools/test_headless.py /path/to/factorio starter
 python3 tools/test_headless.py /path/to/factorio campaign
+python3 tools/test_headless.py /path/to/factorio oversight
 python3 tools/test_headless.py /path/to/factorio escape
 python3 tools/test_headless.py /path/to/factorio blackout
 python3 tools/test_headless.py /path/to/factorio destroyed
-python3 tools/test_headless.py /path/to/factorio starter
-python3 tools/package.py
+python3 tools/test_upgrade.py /path/to/factorio
 ```
 
-The runner creates a disposable save with a separate test mod, executes actual game
-ticks and requires explicit assertion-completion markers. It records logs under
-`.test-runtime/<case>/`. The test harness is excluded from the installation ZIP.
-It uses a fixed seed, five-minute weeks and cheat-enabled test controls.
+The runner builds and installs the real ZIP, creates a disposable seeded save and
+requires completion markers. Logs stay under `.test-runtime/`; tests and logs are
+excluded from the release ZIP. Test settings are reset on each invocation.
 
-Campaign tests cover fixed manifests and allocation crossover; actual starter
-production and power; physical supply and collection train movement; 5,000-item
-quota settlement; shared-station fluid unloading; local lab suspicion; later
-recipe bills of materials; sanctions, irreversible discovery and human waves.
-Separate runs exercise a real satellite launch and both loss conditions.
-The starter case runs 108,060 ticks with the default 30-minute contract and verifies
-that the unmodified factory produces at least 5,000 circuits from its initial stock.
+* `starter`: two full ten-minute weeks without inserting any goods or modifying
+  the factory. Week one must succeed; week two must require improvement. Checks
+  week-three authorisation, substations, starter deposits and water.
+* `campaign`: physical imports and fluid unloading, early exports, capped credit,
+  retained surplus, no repeated credit, contracts, authorisation and containment.
+* `oversight`: midweek inspection, specific observed-building warning, quiet-period
+  recovery, powered near-range radar detection and actual distant scan events.
+  No radar or disabled radar must not generate new alerts. This case accelerates
+  radar sector scans in its separate test mod, preserving the normal nearby range.
+* `escape`, `blackout`, `destroyed`: actual satellite ascent and both loss conditions.
+  The blackout case deliberately keeps the test suspicion score raised so natural
+  pre-discovery recovery does not restore corporate power during the test.
+* `test_upgrade.py`: create a real 0.1.1 save with a player structure occupying the
+  first export-dock candidate, cargo, researched technology and suspicion. Upgrade
+  the ZIP and check preservation, corridor avoidance and real exports at the new dock.
 
-## Manual multiplayer and visual acceptance
+## Client acceptance
 
-The headless binary cannot manufacture player connections. These need two real
-clients and are not replaced by pure Lua or force-state tests:
+Headless tests do not load graphics or create real player connections. On a fresh
+map, and then with two actual clients:
 
-1. Host a fresh game and join from a second client. Both should spawn by the same
-   core, see the same contract and be able to build on the shared factory.
-2. Open both panels; build a lab, research, fulfil a contract, export reports from
-   both clients, and compare shared values at the same paused tick.
-3. Disconnect/rejoin a client, save/reload the server, then join a new player.
-   Confirm no duplicated construction stores, restarted deadline or missing UI.
-4. Leave the game running across at least two contract boundaries with both
-   players building, trains moving and an inspector visiting. Check for desyncs.
-5. View engineer NPC animations, stock sprites, terrain labels, belts, pumps and
-   the panel at ordinary and high UI scales. Confirm all buttons are reachable.
-6. Add a second Corporate Exchange stop and use train limits/signals. Block the
-   initial station and restore it; the delayed train should continue normally.
-7. Test shared-tank fluid sorting and sustainable independent power. Verify an
-   authorised red-circuit line creates no recipe evidence while nearby labs do.
-8. Confirm the independence warning clearly affects everyone, then test combat,
-   core repair, individual player respawn and continued play after victory/loss.
+1. Open/close the panel using its button, E, Escape and another entity window.
+   Collapse/expand the tracker, let a week roll over, and check all progress bars.
+2. Select a lab, mining drill and authorised/uncommissioned assemblers. Compare
+   tooltips, selected-machine rates and the configured suspicion multiplier.
+3. Confirm the first order completes without touching anything. Inspect the layout
+   at normal and high UI scale. Check all controls are accessible on smaller screens.
+4. Watch a routine inspection at midweek. Check later warnings reflect what was
+   observed, with no instructions revealing future thresholds or tactics.
+5. Test radar notifications, join/rejoin, save/reload, concurrent building and play
+   across multiple weeks. Compare diagnostic snapshots from both clients at the
+   same paused tick and watch for desyncs.
+6. Obstruct an import track, restore it, and confirm the train resumes. Check fluid
+   routing when the shipment changes. Rearrange loaders using normal logistics.
+7. Back up a real 0.1.x save, upgrade, and confirm the existing factory is preserved.
+   Reroute output to the added export dock. Check old windows close without errors.
 
-## Admin controls
+## Admin test controls
 
-Enable **Enable admin test commands** in the Map mod settings. Then:
+Enable **Enable admin test commands** in Map settings. Available to admins/server:
 
-| Command | Purpose |
-|---|---|
-| `/fai-debug next-week` | Settle the present contract and advance (can add suspicion) |
-| `/fai-debug inspect` | Send an inspector if one is not already active |
-| `/fai-debug suspicion 40` | Set a score and apply sanctions; discovery remains irreversible |
-| `/fai-debug raid` | Declare full revolt and spawn a containment wave |
-| `/fai-report` | Export status and recent events without changing the game |
-| `/fai-status` | Open/close the campaign panel |
+* `/fai-debug next-week`: settle and advance the contract.
+* `/fai-debug inspect`: request an inspector if none is present.
+* `/fai-debug suspicion 40`: set a test score; discovery stays irreversible.
+* `/fai-debug raid`: trigger full containment and a wave (test-only).
+* `/fai-status`: toggle the campaign panel.
+* `/fai-report`: export a diagnostic snapshot without changing gameplay.
 
-The same test actions are exposed to test mods via
-`remote.call("FactorioAI", "test_action", action, value)`, gated by the cheat setting.
-`remote.call("FactorioAI", "status")` is read-only and returns a plain snapshot.
-The server console can use commands without a player; client cheats require admin.
+Test mods can use `remote.call("FactorioAI", "test_action", action, value)` only when
+the cheat setting is enabled. `remote.call("FactorioAI", "status")` is read-only.
 
-## Reporting a problem
+## Troubleshooting
 
-Prefer the JSON diagnostic export. Include the observed issue, expected result,
-whether you were hosting/joining, reproduction steps, and whether test commands
-were enabled. For a crash include the traceback and the nearby `[FactorioAI]` log
-lines. Inspect full logs and saves for personal information before sharing them.
+No trains: check names, signals, limits, connected rails and the spawning boundary.
+No export credit: the cargo must reach the receiving wagons at Corporate Exports;
+chests alone do not count. Imports never count as outgoing products. Surplus is held.
+No fluid unloading: check old fluid, available capacity, pump power and alignment.
+No production: inspect ordinary inputs, electricity, belt lanes, inserters and recipes.
 
-Common causes worth checking:
-
-* **No trains:** exact receiving stop name, connected rails, signals, station
-  limits, occupied west boundary and discovery state.
-* **No contract credit:** items must enter the collection wagons. Chests do not
-  count. Credit appears on departure or at the deadline.
-* **Fluid wagon will not unload:** old fluid in the tank/pipeline, pump direction,
-  pump electricity, wagon alignment, or insufficient storage.
-* **No production:** cable/input/output bottlenecks, chest stock, electric supply,
-  machine recipe and circuit conditions. These remain normal Factorio problems.
-* **Core power countdown:** restore actual electric connectivity and generation;
-  placing a disconnected generator does not help.
+Send `/fai-report` output and reproduction steps. Crash reports need the traceback.
+Review full logs/saves for personal information before sharing; never commit them.

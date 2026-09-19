@@ -1,122 +1,113 @@
-# Design and implementation notes
+# Developer design notes — gameplay spoilers
 
-## Preserved design decisions
+## Opening and pacing
 
-The AI begins independent and can already modify factory infrastructure. Humans
-tolerate it while the factory performs. Contracts specify absolute quantities,
-never percentages of output. There is no scrap-rate system. Supplies start generous
-and eventually become insufficient. Rail handles inbound solids/fluids and outbound
-products at one shared public station name. Sorting uses vanilla logistics.
+The player already is the factory AI. There is no independence declaration, and
+player-facing text does not reveal future sanctions, tactical solutions or the
+escape condition. The opening asks the player to care about the core's survival.
 
-Suspicion replaces industrial pollution, is spatial, and distinguishes recipes,
-buildings and independent research. A commission authorises its recipe chain;
-research buildings do not become invisible. The humans eventually cut resources
-and power, then bring armed containment. Independent capability supports escape.
-All of this state is shared by the cooperative team.
+Ten-minute weeks: 900 green circuits, then 1,600 green circuits, then 1,600 green
+and 100 red circuits. After week three, the base quantities grow by 12% per week.
+Blue circuits enter at week six, electric engines at nine, low-density structures
+at twelve, rocket fuel at fifteen. These are provisional balance values.
 
-## Implementation choices where details were open
+Two cable/circuit cells have connected copper/iron inputs and a connected export
+belt. Their cable throughput intentionally limits output. No items are generated
+inside machines or scripted into the contract ledger: real import wagons deliver
+all production feedstock, inserters feed machines, and real export wagons accept
+finished products. The initial construction stores are separate, finite inventory.
+The starting grid uses substations without granting their technology. Nearby iron,
+copper, coal, stone, crude oil and water are guaranteed for testing.
 
-* A week is 30 simulation minutes by default; the setting takes effect on the next
-  contract. A five-minute test setting intentionally does not lower item quotas.
-* Green/red examples occupy the first three weeks. From week four a 1.24 exponential
-  factor raises quantities; weeks six, eight and ten add electric engines,
-  low-density structures and rocket fuel. Individual quantities cap at 10 million
-  to avoid numeric growth without bound.
-* Materials are iron/copper plates, coal, stone and fluids. The recursive bill of
-  materials uses normal-quality, unmodded recipes, ignoring productivity bonuses
-  (so efficiency investment creates extra room). Oil fractions are delivered
-  directly to avoid assuming free coproducts or a particular refining strategy.
-* Initial stocked circuit inputs are deducted from week one's allocation. The
-  finite construction crate and 200 coal per supplied week are separate allowances.
-* Missed contracts add 8–20 suspicion according to the unfilled share; full delivery
-  subtracts 5. These are oversight effects; **the required quantities stay fixed**.
-* Suspicion thresholds: 20 audit, 40 supplies ×0.75 next allocation, 60 grid off,
-  75 discovery and logistics off, 90 stronger troops. Pre-discovery sanctions can
-  reverse; discovery cannot. The declaration button opts into maximum response.
-* Inspectors sample the local chunk and four points 16 tiles away every second.
-  Evidence above 0.5 contributes up to 0.15 suspicion per second. Their initial
-  route covers the exchange and existing factory; later audits extend the perimeter.
-* Building heat is emitted every five seconds, in pollution units per minute.
-  Labs emit 0.8, radars 0.3, rocket silos 4; the complete table is in `balance.lua`.
-  Unauthorised science crafts emit 0.15 per completed craft; other independent
-  recipes emit 0.04. Active research adds local lab heat; finished independent
-  technologies add a local pulse. These are first-pass tuning values.
-* Human units reuse the built-in unit pathfinder and stock engineer animations.
-  Waves grow by two troops, cap at 40 per wave and 160 surviving units. Their
-  numbers replace a separate inventory/logistics system for the human military.
-* The AI core is a fixed, repairable 2,000-health, 250 kW electrical load. The grid
-  offers 20 MW. A continuous 300-second blackout is a loss after a 60-second initial
-  grace period. A satellite is the stock-item escape payload.
-* The established dock has a starting +11 vanilla bulk-inserter hand-capacity
-  bonus. This gives the collection loader sufficient throughput without granting
-  unrelated advanced research. Starter construction materials occupy two chests.
+## Supplies and logistics
 
-## Modules and persistence
+The base-game recipe graph supplies the bill of materials. Materials are plates,
+coal, stone and fluids, with oil fractions supplied separately. Productivity can
+produce a useful surplus. No custom resource or scrap economy is introduced.
+Allocation starts at 145%, declines 2.5 percentage points per week, breaks even in
+week 19 and eventually falls below requirements. Supply sanctions multiply the
+allocation by 0.75; discovery stops further dispatch. Construction stores and
+200 coal per supplied week are separate from recipe inputs.
 
-| File | Responsibility |
-|---|---|
-| `control.lua` | Events, lifecycle, outcomes, commands and read-only status interface |
-| `scripts/balance.lua` | Pure quantities, thresholds, risk classes and shortfall rules |
-| `scripts/world.lua` | Dedicated surface, factory, station and joining players |
-| `scripts/contracts.lua` | Recipe-derived supplies, authorisations and weekly settlement |
-| `scripts/rail.lua` | Physical consists, dispatch queue, station visits and cargo credit |
-| `scripts/suspicion.lua` | Entity tracking, local emissions and response state |
-| `scripts/oversight.lua` | Inspector routes, detection and containment waves |
-| `scripts/gui.lua` | Per-player views of shared state and actions |
-| `scripts/diagnostics.lua` | Sanitised snapshots, bounded events and log lines |
+The north Corporate Exchange accepts real, double-ended five-vehicle trains.
+Supplies are queued and split into finite loads. Unloaded goods return to the
+queue in the same week. Normal filters, belts and pumps handle unloading.
+The south Corporate Exports is a disconnected line with its own receiving train.
+It stays at the station, where cargo is consumed and credited once each second,
+only up to the current quota. Surplus stays in the wagons across weeks. The standing
+train waits on an unsatisfiable circuit condition; it does not need player signals.
+Tracks, loaders and station names remain normal, editable Factorio infrastructure.
 
-`storage.fai` is the authoritative serialised campaign state. Lua entity references
-are checked before use. There is no writable module-local game state and no
-`on_load` mutation. An entity registry is rebuilt on configuration changes.
-Configuration changes do not restart contracts. Future releases must migrate the
-schema explicitly; version 0.1.0 establishes schema 1.
+Imports and exports run independently; there is no last-quarter collection window.
+A blocked train is reported rather than teleported through obstructions. Discovery
+stops export credit as well as new import dispatch. Destroyed receiving trains leave
+surviving rolling stock and cargo in place, rather than deleting player goods.
 
-Events never query `game.player` or local UI visibility to make campaign decisions.
-UI elements are per player; controls modify the shared campaign through the same
-deterministic event stream. Science research belongs to the shared force. There
-are no external network calls, dynamically evaluated scripts or player-name keys.
+## Suspicion and oversight
 
-## Railway model
+Normal industrial pollution is removed. The existing pollution field instead
+carries local evidence, retaining engine diffusion and terrain absorption.
+Building baselines are listed in `scripts/balance.lua`: labs 0.8/min, radars 0.3/min,
+mining drills 0.08/min, etc. They emit even while idle. Working labs add 1.44/min;
+finished independent research adds 2 per lab. Uncommissioned science recipes add
+0.15 per craft and other uncommissioned recipes 0.04. Contract chains and ordinary
+support recipes have no crafting evidence; their buildings can still emit.
+All these values use the runtime suspicion multiplier.
 
-A double-ended locomotive + three wagon + locomotive consist enters at the west
-boundary. Its schedule visits Corporate Exchange and returns to Corporate Boundary.
-Only one corporate consist is active at a time, avoiding artificial spawning into
-occupied track. Players can add receiving stops with the same public name, and
-normal pathfinding/limits choose the destination. The boundary stop is the external
-exit, never a separate goods-delivery destination.
+Tooltips show baseline rules. The selection readout resolves current authorisation,
+lab operation and multiplier. A force's changing authorisation is not encoded in
+shared static prototype descriptions.
 
-Solid supply batches use up to 120 slots across all three wagons. Filtered inserters
-and ordinary underground crossings merge each wagon's output into four belt buses.
-Fluid trains and collection trains also use all three wagons. Supply slots are
-filtered so collection loaders do not contaminate incoming deliveries. Collection
-slots divide the outstanding products across the three wagons.
-Supply trains dwell 60 seconds; collection trains dwell 90 seconds. Full cargo is
-finite and real. Large manifests are split across additional visits. A blocked train
-stays blocked and is reported, rather than teleporting or destroying player stock.
+Routine inspections begin halfway through each week, with a neutral corporate
+notice. Audit status adds unscheduled visits every 240 seconds, reducing towards
+90 seconds as concerns escalate. There is at most one inspector. A routine visit
+is not duplicated if another inspection is already underway.
+Inspectors sample their chunk and four positions 16 tiles away once per second.
+Evidence adds at most 0.15 suspicion/second. Warnings identify a nearby suspicious
+building when one is observed; otherwise they report unexplained activity without
+claiming knowledge of a distant source. Warnings are limited to once per inspector
+per two minutes. Local evidence can persist after a building is dismantled.
 
-Unloaded supply balances are retried during the same week, without duplicating the
-allocation. Dispatch reserves a 90-second gap before the collection window so an
-ordinary supply round trip does not block the scheduled pickup. Player-built
-detours or congestion can still delay trains.
+Before permanent discovery, two minutes with no newly detected evidence starts
+recovery at 1.5 suspicion/minute. A missed deadline or attack on personnel resets
+that quiet timer. A complete weekly contract subtracts 5; a shortfall adds 8–20
+according to the missing proportion. Individual shipment batches do not each earn
+a separate reduction, avoiding incentives to split deliveries artificially.
 
-A collection is credited only after its train has reached an exchange. Cargo is
-removed up to the exact remaining requirement on departure; any excess returns
-off-site. At the deadline, a present/returning collection train is settled once.
-The recorded week and credited flag prevent late trains from counting for the next
-week or counting twice. Undispatched previous-week supplies expire; an active train
-finishes its trip. Discovery prevents new dispatch but does not magically delete
-an arriving train.
+Internal thresholds remain 20 audit, 40 supply restriction, 60 grid suspension,
+75 permanent discovery, 90 stronger containment. Recovery can reverse earlier
+sanctions but not discovery. Notifications explain sanctions only when they occur.
+Military arrivals have no global notification. Radars warn about newly observed
+humans, including inspectors, only inside a working radar's actively visible nearby
+chunks or the precise sector being scanned. Previously explored terrain alone
+never triggers a warning. Contacts are shared across the team and deduplicated.
 
-## Performance and limitations
+## Outcomes and implementation
 
-The emitter registry is sampled every five seconds. This is intentionally simple
-for a first campaign; extremely large factories may require bucketed updates later.
-Corpse/dead emitter entries are pruned. Inspections sample five pollution positions
-per second, not the whole surface. Event history is capped at 200 and contracts at
-30. Fluid changes require ordinary plumbing decisions. Pollution diffusion and
-terrain absorption retain their standard engine behaviour.
+The AI core is a fixed, repairable 2,000-health, 250 kW load. The corporate grid
+supplies 20 MW. Destruction or a continuous five-minute blackout loses the campaign,
+following a one-minute starting grace period. Launching a satellite wins. These
+outcomes are intentionally absent from the introductory guidance.
+Human units use stock engineer animations and the unit pathfinder. Waves and total
+live personnel are bounded. The campaign uses shared serialised storage and engine
+events; no network calls, wall-clock input or player-name identifiers are used.
+GUI state is per-player and does not determine gameplay. Open windows register with
+`player.opened` and handle `on_gui_closed`; button handlers capture names before
+any element can be destroyed. There is no declaration or confirmation dialog.
 
-The overhaul disables normal prototype emissions globally. Use a dedicated save
-and the base game. It is not a pollution overlay intended to coexist with vanilla
-or overhaul campaigns. It does not promise compatibility with mods that change
-recipes, add planets, replace enemies, move cores or merge forces.
+Storage schema 2 adds the export dock while preserving existing schema-1 contracts,
+research, goods and buildings. The dock searches for an empty southern corridor;
+existing facilities are not overwritten. Old collection trips can finish, but no
+new ones are scheduled. A fresh map is needed for the redesigned factory.
+Diagnostics retain 200 events and 30 weekly summaries, including exports,
+inspections, warnings and radar detections. They omit player names and chat.
+
+## Future ideas, not implemented
+
+* Research to interfere with an inspector's sensors or suppress nearby evidence.
+* Research or negotiation to justify additional raw materials or electrical capacity.
+* Reconsider “Trust” only if the relationship becomes richer than detection risk.
+* Further pacing and map polish after real co-op playtests.
+
+Do not introduce parallel systems where vanilla research, logistics, power,
+pollution or circuit mechanics already serve the design.

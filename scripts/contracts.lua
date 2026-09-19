@@ -49,13 +49,15 @@ function C.begin_week()
   s.deadline, s.collection_due = game.tick+s.week_ticks, game.tick+math.floor(s.week_ticks*0.75)
   s.required, s.delivered, s.supplies = B.manifest(s.week), {}, {}
   s.collection_sent = false
+  s.routine_due=game.tick+math.floor(s.week_ticks/2)
+  s.routine_done=false
   for _, name in ipairs(B.sorted_keys(s.required)) do
     walk(game.forces[B.force], name, s.required[name], s.supplies, s.authorised, {})
   end
   C.authorise()
   s.supply_ratio = B.supply_ratio(s.week, s.stage)
   for name, count in pairs(s.supplies) do
-    local stocked = s.week == 1 and ((name == "iron-plate" and 5600) or (name == "copper-plate" and 8400) or 0) or 0
+    local stocked = 0 -- Fresh factories are fed entirely by the real import trains.
     s.supplies[name] = math.max(0, math.ceil(count*s.supply_ratio) - stocked)
   end
   -- Transport runs and construction reserves are explicit, separate from production inputs.
@@ -69,6 +71,7 @@ function C.finish_week()
   local missing, ratio = B.shortfall(s.required, s.delivered)
   local success = next(missing) == nil
   s.suspicion = math.max(0, math.min(100, s.suspicion + (success and -5 or (8+12*(1-ratio)))))
+  if not success then s.last_detected=game.tick end
   local row = {week=s.week, required=s.required, delivered=s.delivered, missing=missing, success=success}
   s.history[#s.history+1]=row; if #s.history>30 then table.remove(s.history,1) end
   D.record("contract_closed", row)

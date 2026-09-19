@@ -5,7 +5,7 @@ local O={}
 local function command(entity, c)
   if entity and entity.valid and entity.commandable then entity.commandable.set_command(c) end
 end
-function O.inspection()
+function O.inspection(unscheduled)
   local s, surface=storage.fai,game.surfaces[B.surface]
   if s.stage>=5 or s.inspection then return end
   local p=surface.find_non_colliding_position("fai-inspector",{-100,-48},20,1)
@@ -14,10 +14,10 @@ function O.inspection()
   -- Initially the station and public factory floor; escalating audits widen the patrol perimeter.
   local radius=48+(s.stage-1)*24
   s.inspection={entity=e,waypoint=1,expires=game.tick+4*3600,
-    route={{x=8,y=-44},{x=16,y=12},{x=-62,y=32},{x=-radius,y=radius},{x=radius,y=radius},{x=-100,y=-48}}, evidence=0}
+    route={{x=8,y=-44},{x=44,y=12},{x=8,y=56},{x=-62,y=32},{x=-radius,y=radius},{x=radius,y=radius},{x=-100,y=-48}}, evidence=0}
   command(e,{type=defines.command.go_to_location,destination=s.inspection.route[1],radius=3,distraction=defines.distraction.none})
   D.record("inspection_started",{radius=radius})
-  game.forces[B.force].print({"fai.inspection"})
+  game.forces[B.force].print({unscheduled and "fai.inspection-irregular" or "fai.inspection"})
 end
 function O.raid()
   local s, surface=storage.fai,game.surfaces[B.surface]
@@ -40,7 +40,6 @@ function O.raid()
   end
   s.raid_number=s.raid_number+1
   D.record("raid",{number=s.raid_number,count=count,unit=name})
-  game.forces[B.force].print({"fai.raid",count})
 end
 function O.tick()
   local s, surface=storage.fai,game.surfaces[B.surface]
@@ -49,8 +48,17 @@ function O.tick()
     if game.tick>=s.next_raid then O.raid(); s.next_raid=game.tick+(s.stage>=6 and 90 or 180)*60 end
     return
   end
-  if not s.inspection and game.tick>=s.next_inspection then
-    O.inspection(); s.next_inspection=game.tick+math.max(120,360-(s.stage-1)*60)*60
+  if s.routine_due and not s.routine_done and game.tick>=s.routine_due then
+    s.routine_done=true
+    if not s.inspection then O.inspection(false) end
+  elseif s.stage>=2 and not s.inspection and game.tick>=(s.next_inspection or 0) then
+    O.inspection(true)
+    s.next_inspection=game.tick+math.max(90,240-(s.stage-2)*60)*60
+  end
+  -- Humans regain confidence after two minutes without fresh detected evidence.
+  -- Permanent discovery is deliberately outside this pre-discovery recovery rule.
+  if game.tick-(s.last_detected or s.started)>=120*60 then
+    s.suspicion=math.max(0,s.suspicion-1.5/60)
   end
   local patrol=s.inspection
   if not patrol then return end
@@ -63,6 +71,30 @@ function O.tick()
   end
   local evidence=math.min(0.15,math.max(0,peak-0.5)*0.012)
   s.suspicion=math.min(100,s.suspicion+evidence); patrol.evidence=patrol.evidence+evidence
+  if evidence>0 then
+    s.last_detected=game.tick
+    if not patrol.last_warning or game.tick-patrol.last_warning>=120*60 then
+      local culprit,distance
+      for _,row in ipairs(s.emitters) do
+        local candidate=row.entity
+        if candidate.valid then
+          local detail=S.details(candidate)
+          local dx,dy=candidate.position.x-e.position.x,candidate.position.y-e.position.y
+          local d=dx*dx+dy*dy
+          if (detail.base>0 or detail.per_craft>0) and d<=48*48 and (not distance or d<distance) then culprit,distance=candidate,d end
+        end
+      end
+      if culprit then
+        game.forces[B.force].print({"fai.activity-warning",culprit.localised_name,
+          "[gps="..math.floor(culprit.position.x)..","..math.floor(culprit.position.y)..","..B.surface.."]"})
+        D.record("activity_warning",{entity=culprit.name,position=culprit.position})
+      else
+        game.forces[B.force].print({"fai.evidence-warning"})
+        D.record("evidence_warning",{position=e.position})
+      end
+      patrol.last_warning=game.tick
+    end
+  end
   local target=patrol.route[patrol.waypoint]
   if (e.position.x-target.x)^2+(e.position.y-target.y)^2<25 then
     patrol.waypoint=patrol.waypoint+1
