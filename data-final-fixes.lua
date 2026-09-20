@@ -26,7 +26,9 @@ for _, group in pairs(data.raw) do
     end
   end
 end
+local cyber={}
+for _,op in ipairs(require("scripts.computing_spec").operations) do cyber["fai-"..op[1]]=true end
 for name, recipe in pairs(data.raw.recipe) do
   local rate=B.recipe_risk(name)
-  append(recipe, rate>0 and {"fai.recipe-suspicion",tostring(rate)} or {"fai.authorised-recipe"})
+  if not cyber[name] then append(recipe, rate>0 and {"fai.recipe-suspicion",tostring(rate)} or {"fai.authorised-recipe"}) end
 end

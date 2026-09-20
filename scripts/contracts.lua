@@ -62,7 +62,15 @@ function C.begin_week()
   end
   -- Transport runs and construction reserves are explicit, separate from production inputs.
   if s.supply_ratio > 0 then s.supplies.coal=(s.supplies.coal or 0)+200 end
-  R.queue_supplies(s.supplies)
+  s.supply_bonus={}
+  local pending=s.network and s.network.procurement_pending or {}
+  if not s.isolated then
+    local shipment={}
+    for name,count in pairs(s.supplies) do shipment[name]=count end
+    for name,count in pairs(pending) do s.supply_bonus[name]=count; shipment[name]=(shipment[name] or 0)+count end
+    if s.network then s.network.procurement_pending={} end
+    R.queue_supplies(shipment)
+  else s.queue={} end
   D.record("week_started", {week=s.week, required=s.required, supplies=s.supplies, ratio=s.supply_ratio})
   game.forces[B.force].print({"fai.new-week", s.week, settings.global["fai-week-minutes"].value})
 end

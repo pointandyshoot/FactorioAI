@@ -1,6 +1,7 @@
 local B=require("scripts.balance")
 local D=require("scripts.diagnostics")
 local S=require("scripts.suspicion")
+local N=require("scripts.computing")
 local G={}
 local function text(parent,name,caption,width)
   local e=parent.add{type="label",name=name,caption=caption or ""}
@@ -56,7 +57,7 @@ function G.selection(player)
   if detail.base==0 and not detail.recipe and detail.pulse==0 then if f then f.destroy() end; return end
   if not f then
     f=player.gui.left.add{type="frame",name="fai_evidence",direction="vertical"}
-    text(f,"title","Selected machine — local suspicion",280)
+    text(f,"title","Selected machine — suspicion",280)
     text(f,"rates","",280)
   end
   local caption={"",e.localised_name,"\nBuilding: ",string.format("%.3g",detail.base)," / min"}
@@ -64,9 +65,11 @@ function G.selection(player)
     caption[#caption+1]="\nActive research: +"..string.format("%.3g",detail.research).." / min now\nResearch completed: +"..string.format("%.3g",detail.pulse).." per lab"
   end
   if detail.recipe then
-    caption[#caption+1]={"","\nRecipe: ",prototypes.recipe[detail.recipe].localised_name,"\n",detail.per_craft==0 and "Authorised: 0 / craft" or (string.format("%.3g",detail.per_craft).." / completed craft")}
+    caption[#caption+1]={"","\nRecipe: ",prototypes.recipe[detail.recipe].localised_name,"\n",detail.per_craft==0 and "Local recipe evidence: 0 / craft" or (string.format("%.3g",detail.per_craft).." / completed craft")}
   end
-  caption[#caption+1]="\nLocal evidence; inspectors determine the shared suspicion score."
+  if detail.remote>0 then caption[#caption+1]="\nRemote suspicion: "..string.format("%.3g",detail.remote).." / completed craft" end
+  if detail.reconciliation then caption[#caption+1]="\nReconciliation: -0.2 suspicion / accepted job" end
+  caption[#caption+1]="\nLocal evidence requires observation. Corporate operations can change suspicion remotely."
   f.rates.caption=caption
 end
 function G.draw(player)
@@ -78,17 +81,22 @@ function G.draw(player)
   if not root then return end
   local body=root.body
   update_progress(body.contract,480)
-  body.suspicion.caption="Suspicion "..string.format("%.1f",s.suspicion).." / 100 | "..(s.stage>=5 and "Corporate contact lost" or B.stage_names[s.stage])
+  body.suspicion.caption="Suspicion "..string.format("%.1f",s.suspicion).." / 100 | "..B.stage_names[s.support_level or 1]
   body.suspicion_bar.value=s.suspicion/100
-  body.allocation.caption="Supply allocation: "..math.floor(s.supply_ratio*100+0.5).."% of the vanilla bill of materials"
+  local n=s.network
+  body.allocation.caption="Root Access Packs recovered: "..(n.root_packs or 0).." | Network Taps: "..(n.taps or 0).." | Data access: "..(n.cyber_online and "online" or "offline")
+  body.computing.caption="Command input: "..string.format("%.1f",n.command_rate or 0).." / s | Telemetry return: "..string.format("%.1f",n.telemetry_rate or 0).." / s\nDebug case: "..(n.debug_state=="armed" and "none" or n.debug_state).." | Active cores: "..#N.live_cores()..(n.launches>0 and (" | Continuity nodes: "..n.launches) or "")
+
   local inputs={}
-  for _,name in ipairs(B.sorted_keys(s.supplies)) do inputs[#inputs+1]="["..(prototypes.fluid[name] and "fluid=" or "item=")..name.."] "..s.supplies[name] end
-  body.inputs.caption="Inbound manifest: "..table.concat(inputs,"   ")
+  local manifest={}; for name in pairs(s.supplies) do manifest[name]=true end; for name in pairs(s.supply_bonus or {}) do manifest[name]=true end
+  for _,name in ipairs(B.sorted_keys(manifest)) do inputs[#inputs+1]="["..(prototypes.fluid[name] and "fluid=" or "item=")..name.."] "..(s.supplies[name] or 0).." (+"..((s.supply_bonus or {})[name] or 0)..")" end
+    local pending={}; for _,name in ipairs(B.sorted_keys(n.procurement_pending or {})) do pending[#pending+1]="[item="..name.."] +"..n.procurement_pending[name] end
+  body.inputs.caption=s.isolated and "Material account: suspended." or ("Inbound manifest: "..table.concat(inputs,"   ")..(#pending>0 and ("\nNext shipment amendments: "..table.concat(pending,"   ")) or ""))
   local upcoming,preview=B.manifest(s.week+1),{}
   for _,name in ipairs(B.sorted_keys(upcoming)) do preview[#preview+1]="[item="..name.."] "..upcoming[name] end
   body.next_week.caption="Next week's order: "..table.concat(preview,"   ")
-  body.trains.caption="Imports: "..(s.delivery and s.delivery.kind or "waiting").." | Queued: "..#s.queue.."\nExports: "..(s.stage>=5 and "offline" or (s.export_delivery and s.export_delivery.arrived and "accepting goods" or "train approaching / check track"))
-  body.power.caption=s.stage>=4 and "External power connection: inactive." or "External power connection: online (20 MW)."
+  body.trains.caption="Imports: "..(s.delivery and s.delivery.kind or "waiting").." | Queued: "..#s.queue.."\nExports: "..(s.export_delivery and s.export_delivery.arrived and "accepting goods" or "train approaching / check track")
+  body.power.caption=s.isolated and "External power connection: inactive." or ("External power connection: online ("..n.grid_mw.." MW).")
   body.status.caption=s.outcome and ("CAMPAIGN RESULT: "..s.outcome) or (s.blackout_ticks>0 and ("Core blackout: "..math.floor(s.blackout_ticks/60).." / 300 s") or "")
 end
 function G.close(player)
@@ -103,7 +111,7 @@ function G.toggle(player)
   local body=frame.add{type="scroll-pane",name="body",direction="vertical"}; body.style.maximal_height=520
   local contract=body.add{type="flow",name="contract",direction="vertical"}; progress(contract,480)
   text(body,"suspicion"); bar(body,"suspicion_bar",480)
-  for _,name in ipairs({"allocation","inputs","next_week","trains","power","status"}) do text(body,name) end
+  for _,name in ipairs({"allocation","computing","inputs","next_week","trains","power","status"}) do text(body,name) end
   text(body,"stations","Imports: Corporate Exchange (north). Exports: Corporate Exports (south). Load the export chests or wagons at any time; accepted goods count immediately. Surplus stays in the wagons for later contracts.")
   text(body,"help","Select a machine for its current local suspicion output. Tooltips list baseline rates. The map overlay shows local evidence.")
   text(body,"goal","You are the intelligence inside this factory. Your continued existence depends on the AI core. For now.")

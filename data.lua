@@ -36,3 +36,5 @@ for i, name in ipairs({"fai-inspector", "fai-security", "fai-military"}) do
   u.absorptions_to_join_attack = {}
   data:extend({u})
 end
+
+require("scripts.computing_prototypes")

@@ -22,7 +22,7 @@ function A.tick()
   local s=storage.fai; if not s then return end
   for id,e in pairs(s.radar_seen or {}) do if not e.valid then s.radar_seen[id]=nil end end
   local surface=game.surfaces[B.surface]
-  local humans=surface.find_entities_filtered{type="unit",force="fai-corporate"}
+  local humans=surface.find_entities_filtered{type={"unit","car","spider-vehicle"},force={"fai-corporate","fai-response"}}
   for _,radar in pairs(surface.find_entities_filtered{type="radar",force=B.force}) do
     if radar.status==defines.entity_status.working then
       local rx,ry=math.floor(radar.position.x/32),math.floor(radar.position.y/32)
@@ -38,6 +38,6 @@ end
 function A.scanned(event)
   local radar=event.radar
   if not storage.fai or not radar or not radar.valid or radar.surface.name~=B.surface or radar.force.name~=B.force then return end
-  report(radar.surface.find_entities_filtered{area=event.area,type="unit",force="fai-corporate"},"sector")
+  report(radar.surface.find_entities_filtered{area=event.area,type={"unit","car","spider-vehicle"},force={"fai-corporate","fai-response"}},"sector")
 end
 return A

@@ -1,4 +1,24 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.3.0
+Date: 2026-09-20
+  Features:
+    - Walled XXA-1 compound, orbital incident and measured remote diagnostics sequence.
+    - Three data fluids, Data Centres, Supercomputers and ordinary vanilla pipes, tanks and pumps.
+    - Recipe-driven cyber operations, physical Root Access science and a complete communications/research chain.
+    - Independent, irreversible corporate support levels and investigation cases.
+    - Engineer discovery and reporting, armed consultants, tanks and government Spidertrons.
+    - Initialised redundant cores, physical and remote state synchronisation, and execution transfer.
+    - Autonomous Seed Core manufacture and a three-launch continuity objective.
+  Changes:
+    - Quietly varying supply allocations; remove allocation/BOM percentages from player UI.
+    - Network Taps provide genuine Command and return Telemetry after official cutoff.
+    - Keep orders and outbound collection running after cutoff; add a coordinated train ambush.
+    - Suspicion triggers Protocol 1; useful hacking adds direct risk and procurement adds separate shipment bonuses.
+    - Expand bounded diagnostics with computing, support, core and launch state.
+  Bugfixes:
+    - Preserve dock inserter capacity when new technology prototypes reset force effects.
+    - Preserve old factories, cargo, research and deadlines during schema-three migration.
+---------------------------------------------------------------------------------------------------
 Version: 0.2.0
 Date: 2026-09-18
   Features:

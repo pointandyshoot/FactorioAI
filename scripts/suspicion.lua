@@ -1,6 +1,9 @@
 local B=require("scripts.balance")
 local D=require("scripts.diagnostics")
 local S={}
+local cyber={}
+for _,op in ipairs(require("scripts.computing_spec").operations) do cyber["fai-"..op[1]]=op[6] end
+cyber["fai-telemetry-spoofing"]={risk=.03}
 local crafting={ ["assembling-machine"]=true, furnace=true, ["rocket-silo"]=true }
 function S.track(e)
   local s=storage.fai
@@ -24,7 +27,9 @@ function S.details(e)
   local base=(B.building_heat[e.name] or 0)*multiplier
   local research=e.type=="lab" and e.status==defines.entity_status.working and game.forces[B.force].current_research
   local recipe=crafting[e.type] and e.get_recipe() or nil
-  return {base=base, research=research and 1.44*multiplier or 0,
+  if recipe and recipe.name=="fai-network-link" then recipe=nil end
+  local operation=recipe and cyber[recipe.name]
+  return {remote=operation and operation.risk*multiplier or 0,reconciliation=operation and operation.kind=="reconcile",base=base, research=research and 1.44*multiplier or 0,
     pulse=e.type=="lab" and 2*multiplier or 0, recipe=recipe and recipe.name,
     per_craft=recipe and S.recipe_risk(recipe.name)*multiplier or 0}
 end
@@ -55,18 +60,11 @@ function S.add(amount,reason)
 end
 function S.stages()
   local s=storage.fai
-  local next_stage=B.stage(s.suspicion,s.stage)
-  if next_stage~=s.stage then
-    s.stage=next_stage
-    D.record("stage_changed",{stage=s.stage,name=B.stage_names[s.stage]})
-    if s.stage<5 then game.forces[B.force].print({"fai.stage-"..s.stage}) end
-    if s.stage>=5 then
-      s.phase="discovered"; s.queue={}
-      local a,b=game.forces[B.force],game.forces["fai-corporate"]
-      a.set_friend(b,false); b.set_friend(a,false)
-      a.set_cease_fire(b,false); b.set_cease_fire(a,false)
-    end
+  -- Support levels are irreversible intervention history, not suspicion thresholds.
+  s.stage=s.support_level or 1
+  if s.grid and s.grid.valid then
+    local n=s.network
+    s.grid.power_production=(s.isolated or (n and n.debug_state=="power-cycle")) and 0 or ((n and n.grid_mw or 20)*1000000/60)
   end
-  if s.grid and s.grid.valid then s.grid.power_production=s.stage>=4 and 0 or 20000000/60 end
 end
 return S

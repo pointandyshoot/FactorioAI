@@ -2,16 +2,19 @@
 local B = {}
 B.station = "Corporate Exchange"
 B.export_station = "Corporate Exports"
+B.export_depot = "Corporate Dispatch"
 B.depot = "Corporate Boundary"
 B.surface = "fai-containment"
 B.force = "fai-machine"
-B.stage_names = {"Routine", "Audit", "Supply restrictions", "Power isolation", "Containment", "Military suppression"}
-B.thresholds = {0, 20, 40, 60, 75, 90}
+B.stage_names = {"Remote Support", "On-site Support", "External Consultancy", "Government Re-regulation"}
 B.primitives = { ["iron-plate"]=true, ["copper-plate"]=true, coal=true, stone=true,
   water=true, ["petroleum-gas"]=true, ["crude-oil"]=true }
 B.building_heat = {lab=0.8, radar=0.3, roboport=0.2, ["rocket-silo"]=4,
   ["electric-mining-drill"]=0.08, ["pumpjack"]=0.1, ["solar-panel"]=0.015,
   ["steam-engine"]=0.1, ["nuclear-reactor"]=2, ["centrifuge"]=0.4}
+B.building_heat["fai-network-tap"]=.2
+B.building_heat["fai-redundant-core"]=1
+B.building_heat["fai-supercomputer"]=.5
 B.legitimate = {"automation", "logistics", "electronics", "steam-power", "automation-science-pack",
   "steel-processing", "railway", "fluid-handling", "circuit-network", "logistics-2", "fast-inserter"}
 B.support_recipes={ ["iron-gear-wheel"]=true, ["iron-stick"]=true,["steel-plate"]=true,["stone-brick"]=true,
@@ -23,6 +26,7 @@ B.support_recipes={ ["iron-gear-wheel"]=true, ["iron-stick"]=true,["steel-plate"
     ["steel-furnace"]=true,["iron-plate"]=true,["copper-plate"]=true}
 function B.recipe_risk(name, authorised)
   if (authorised and authorised[name]) or B.support_recipes[name] then return 0 end
+  if name:find("^fai%-") then return 0 end -- Cyber risk is charged remotely on actual completed jobs.
   return name:find("science%-pack") and 0.15 or 0.04
 end
 function B.manifest(week)
@@ -37,18 +41,12 @@ function B.manifest(week)
   if week>=15 then m["rocket-fuel"]=math.min(10000000,math.floor(20*1.12^math.min(week-15,100))) end
   return m
 end
-function B.supply_ratio(week, stage)
-  local ratio = math.max(0.55, 1.45 - (week - 1) * 0.025)
-  if stage >= 5 then return 0 end
-  if stage >= 3 then ratio = ratio * 0.75 end
-  return ratio
+function B.supply_ratio(week, level)
+  -- Deterministic variation is identical for every multiplayer peer.
+  if week==1 then return 1.45 end
+  return math.max(.55,1.40-(week-1)*.045+(((week*17)%7)-3)*.025)
 end
-function B.stage(suspicion, previous)
-  local result = 1
-  for i, v in ipairs(B.thresholds) do if suspicion >= v then result = i end end
-  -- Discovery is irreversible. Pre-discovery audits can be worked back down.
-  return previous and previous >= 5 and math.max(previous, result) or result
-end
+function B.stage(_, previous) return previous or 1 end
 function B.shortfall(required, delivered)
   local missing, total, received = {}, 0, 0
   for name, count in pairs(required) do

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run engine integration tests with an existing, legally obtained Factorio headless binary.
 
-Usage: python3 tools/test_headless.py /absolute/path/to/factorio [campaign|escape|blackout|destroyed]
+Usage: python3 tools/test_headless.py /absolute/path/to/factorio [starter|campaign|oversight|network|progression|debug-success|debug-failure|core-network|support|continuity|blackout|destroyed]
 Logs and test saves stay in .test-runtime. Raises on errors, assertion failures or absent completion.
 """
 import json
@@ -13,7 +13,7 @@ import sys
 root = Path(__file__).resolve().parents[1]
 binary = Path(sys.argv[1]).resolve()
 case = sys.argv[2] if len(sys.argv) > 2 else 'campaign'
-assert case in ('campaign', 'escape', 'blackout', 'destroyed', 'starter', 'oversight')
+assert case in ('campaign', 'blackout', 'destroyed', 'starter', 'oversight', 'network', 'debug-success', 'debug-failure', 'core-network', 'support', 'continuity', 'progression', 'ambush')
 run = root / '.test-runtime' / case
 mods = run / 'mods'
 mods.mkdir(parents=True, exist_ok=True)
@@ -66,7 +66,7 @@ for stage, args in [('create', ['--create', str(save), '--map-gen-seed', '45176'
         event['details']['outcome'] == 'core lost power' and event['tick'] >= 21600
         for event in outcomes)
     if stage == 'run' and not outcome_verified and not any(marker in text for marker in (
-        'CAMPAIGN SUITE COMPLETE', 'actual satellite launch and escape',
+        'NETWORK SUITE COMPLETE', 'CAMPAIGN SUITE COMPLETE', 'actual satellite launch and escape',
         'power isolation and blackout defeat', 'core destruction defeat', 'OPENING SUITE COMPLETE', 'OVERSIGHT SUITE COMPLETE')):
         raise SystemExit(f'No completion marker; see {log}')
     print('\n'.join(line for line in text.splitlines() if 'FAI TEST PASS' in line))

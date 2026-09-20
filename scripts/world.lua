@@ -16,6 +16,7 @@ function W.create()
   -- This does not unlock the independent science tree.
   force.bulk_inserter_capacity_bonus=11
   local corp=game.create_force("fai-corporate")
+  game.create_force("fai-response")
   force.set_friend(corp,true); corp.set_friend(force,true)
   force.set_cease_fire(corp,true); corp.set_cease_fire(force,true)
   local surface=game.create_surface(B.surface, {seed=game.surfaces[1].map_gen_settings.seed,
@@ -80,6 +81,13 @@ function W.create()
   W.create_export_dock(true)
   W.production()
   W.resources()
+  -- XXA-1 fence; wide west entrances retain the existing train presentation and patrol access.
+  for x=-58,62 do W.entity("stone-wall",x,-48); W.entity("stone-wall",x,78) end
+  for y=-47,77 do
+    if not (y>=-36 and y<=-28) and not (y>=60 and y<=70) and not (y>=-8 and y<=-2) then W.entity("stone-wall",-58,y) end
+    W.entity("stone-wall",62,y)
+  end
+  label("XXA-1 / AUTHORISED COMPOUND",{0,-52})
   W.entity("substation",-12,-35)
   W.entity("substation",4,-35)
   for _,pos in ipairs({{8,54},{-8,72},{8,72},{24,72}}) do W.entity("substation",pos[1],pos[2]) end
@@ -116,6 +124,7 @@ function W.create_export_dock(fresh)
   for x=-210,50,2 do W.entity("straight-rail",x,y,defines.direction.east) end
   local stop=W.entity("train-stop",16,y+2,defines.direction.east); stop.backer_name=B.export_station
   s.export_stop,s.export_y,s.export_chests=stop,y,{}
+  W.export_depot()
   for _,x in ipairs({-7,0,7}) do
     W.entity("bulk-inserter",x,y+2,defines.direction.south)
     s.export_chests[#s.export_chests+1]=W.entity("steel-chest",x,y+3)
@@ -133,6 +142,12 @@ function W.create_export_dock(fresh)
   label("EXPORTS / contract goods accepted continuously",{0,y-5})
   game.forces[B.force].chart(surface,area)
   D.record("export_dock_created",{y=y,station=B.export_station})
+end
+function W.export_depot()
+ local s=storage.fai
+ if s.export_depot and s.export_depot.valid then return end
+ local e=W.entity("train-stop",-194,s.export_y-2,defines.direction.west)
+ e.backer_name=B.export_depot; e.minable=false; e.destructible=false; e.operable=false; s.export_depot=e
 end
 function W.production()
   local surface=game.surfaces[B.surface]

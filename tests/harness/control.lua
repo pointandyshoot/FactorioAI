@@ -1,21 +1,17 @@
+local new_cases={["ambush"]=true,["progression"]=true,["network"]=true,["debug-success"]=true,["debug-failure"]=true,["core-network"]=true,["support"]=true,["continuity"]=true}
+if new_cases[settings.startup["fai-test-case"].value] then require("network"); return end
 -- Runs only as a separate, explicitly installed test mod; never packaged with the campaign.
 local B=require("__FactorioAI__/scripts/balance")
 local function status() return remote.call("FactorioAI","status") end
 local function action(name,value) assert(remote.call("FactorioAI","test_action",name,value)) end
 local function check(value,message) assert(value,"FAI TEST FAILED: "..message) end
 local function pass(message) log("FAI TEST PASS: "..message) end
-script.on_event(defines.events.on_rocket_launched,function()
-  if settings.startup["fai-test-case"].value=="escape" then
-    check(status().outcome=="escaped","satellite escape event")
-    pass("actual satellite launch and escape"); storage.done=true
-  end
-end)
 script.on_init(function()
   check(B.manifest(1)["electronic-circuit"]==900,"first contract")
   check(B.manifest(2)["electronic-circuit"]==1600 and not B.manifest(2)["advanced-circuit"],"week two throughput challenge")
   check(B.manifest(3)["advanced-circuit"]==100,"week three red circuits")
-  check(B.supply_ratio(1,1)>1 and math.abs(B.supply_ratio(19,1)-1)<0.001 and B.supply_ratio(20,1)<1,"supply crossover")
-  check(B.stage(0,5)==5 and B.stage(0,3)==1,"discovery permanence")
+  check(B.supply_ratio(1,1)>1 and B.supply_ratio(30,1)<1,"supply decline")
+  check(B.stage(0,3)==3,"support permanence")
   local missing, ratio=B.shortfall({a=10,b=10},{a=99,b=5,c=1000})
   check(missing.b==5 and not missing.a and ratio==0.75,"no substitution or over-delivery credit")
   pass("pure contract and escalation rules")
@@ -30,19 +26,11 @@ script.on_nth_tick(60,function()
     check(surface.count_entities_filtered{name="fai-core"}==1,"single core")
     check(not game.forces[B.force].technologies["rocket-silo"].researched,"escape requires research")
     pass("shared campaign force and single core; client joins require manual multiplayer testing")
-    if mode=="blackout" then action("suspicion",60)
+    if mode=="blackout" then action("support",3); surface.find_entities_filtered{name="fai-core"}[1].destructible=false
     elseif mode=="destroyed" then
       surface.find_entities_filtered{name="fai-core"}[1].die()
       check(status().outcome=="core destroyed","core loss event")
       pass("core destruction defeat"); storage.done=true
-    elseif mode=="escape" then
-      game.forces[B.force].research_all_technologies()
-      local silo=surface.create_entity{name="rocket-silo",position={60,-60},force=B.force}
-      silo.set_recipe("rocket-part"); silo.rocket_parts=100
-      local grid=surface.create_entity{name="fai-grid",position={68,-60},force=B.force}
-      surface.create_entity{name="substation",position={66,-54},force=B.force}
-      storage.silo=silo; storage.grid=grid
-      check(silo.get_inventory(defines.inventory.rocket_silo_rocket).insert{name="satellite",count=1}==1,"payload inserted")
     elseif mode=="campaign" then
       -- Enough real cargo for a successful first contract; testing shipping, not fabricated ledger credit.
       for _,pos in ipairs({{-7,s.export_y+3},{0,s.export_y+3},{7,s.export_y+3}}) do
@@ -98,15 +86,9 @@ script.on_nth_tick(60,function()
     end
     return
   end
-  if mode=="escape" then
-    if storage.silo and storage.silo.valid and not storage.launched then storage.launched=storage.silo.launch_rocket() end
-    if s.outcome then check(s.outcome=="escaped","satellite escape outcome"); pass("actual satellite launch and escape"); storage.done=true end
-    if tick>=18000 then check(storage.done,"rocket escape timeout") end
-    return
-  end
   if mode=="blackout" then
-    if tick%3600==0 then action("suspicion",60) end
-    if tick==600 then check(s.stage==4 and surface.find_entities_filtered{name="fai-grid"}[1].power_production==0,"corporate power cut") end
+    if tick%3600==0 then action("support",3) end
+    if tick==600 then check(s.stage==3 and surface.find_entities_filtered{name="fai-grid"}[1].power_production==0,"corporate power cut") end
     if tick>=21660 then check(s.outcome=="core lost power","blackout defeat timer"); pass("power isolation and blackout defeat"); storage.done=true end
     return
   end
@@ -201,11 +183,11 @@ script.on_nth_tick(60,function()
     check(status().required["rocket-fuel"]>0,"late contracts")
     pass("week 3–15 progression and supply bill of materials")
     -- Pre-discovery sanctions can recover, but open rebellion cannot.
-    action("suspicion",40); check(status().stage==3,"supply sanctions")
-    action("suspicion",0); check(status().stage==1,"pre-discovery recovery")
-    action("raid"); check(status().stage>=5,"revolt discovers AI")
-    action("suspicion",0); check(status().stage>=5,"discovery irreversible")
-    check(surface.count_entities_filtered{force="fai-corporate",type="unit"}>0,"human combat units")
+    action("suspicion",40); check(status().support_level==1,"suspicion does not automatically escalate support")
+    action("suspicion",0); check(status().support_level==1,"quiet remote support")
+    action("raid"); check(status().stage>=3,"revolt discovers AI")
+    action("suspicion",0); check(status().stage>=3,"discovery irreversible")
+    check(surface.count_entities_filtered{force="fai-response",type="unit"}>0,"human combat units")
     pass("recovery, irreversible discovery and armed containment")
     helpers.write_file("FactorioAI/test-status.json",helpers.table_to_json(status()),false)
     storage.done=true

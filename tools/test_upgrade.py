@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify a 0.1.1 save upgrades without losing contracts, research or buildings."""
+"""Verify an archived 0.1.1 or 0.2.0 save upgrades without losing campaign state."""
 import json
 from pathlib import Path
 import shutil
@@ -7,7 +7,9 @@ import subprocess
 import sys
 
 root = Path(__file__).resolve().parents[1]
-run = root / '.test-runtime' / 'upgrade'
+legacy = sys.argv[2] if len(sys.argv)>2 else '0.2.0'
+assert legacy in ('0.1.1','0.2.0')
+run = root / '.test-runtime' / ('upgrade-'+legacy)
 mods = run / 'mods'
 if mods.exists():
     shutil.rmtree(mods)
@@ -23,22 +25,23 @@ local function status() return remote.call("FactorioAI","status") end
 script.on_init(function()
   remote.call("FactorioAI","test_action","suspicion",12.5)
   local surface=game.surfaces["fai-containment"]
-  storage.obstacle=surface.create_entity{name="steel-chest",position={0,64},force="fai-machine"}
+  local before=status()
+  storage.obstacle=surface.create_entity{name="steel-chest",position=before.export_y and {-42,-4} or {0,64},force="fai-machine"}
   storage.obstacle.insert{name="electronic-circuit",count=77}
-  storage.old_chest=surface.find_entities_filtered{name="steel-chest",position={-7,-29},radius=1}[1]
+  storage.old_chest=surface.find_entities_filtered{name="steel-chest",position={-7,before.export_y and before.export_y+3 or -29},radius=1}[1]
   storage.old_chest.insert{name="electronic-circuit",count=133}
   game.forces["fai-machine"].technologies["solar-energy"].researched=true
   storage.before=status()
 end)
 script.on_configuration_changed(function()
   local s=status(); local before=storage.before
-  assert(s.schema==2 and s.week==before.week and s.deadline==before.deadline,"contract timing changed")
+  assert(s.schema==3 and s.week==before.week and s.deadline==before.deadline,"contract timing changed")
   assert(s.required["electronic-circuit"]==before.required["electronic-circuit"],"existing quota changed")
   assert(s.suspicion==before.suspicion,"suspicion lost")
   assert(game.forces["fai-machine"].technologies["solar-energy"].researched,"research lost")
   assert(storage.obstacle.valid and storage.obstacle.get_item_count("electronic-circuit")==77,"player structure overwritten")
   assert(storage.old_chest.valid and storage.old_chest.get_item_count("electronic-circuit")==133,"legacy cargo lost")
-  assert(s.export_y>=96,"new dock did not avoid occupied corridor")
+  assert(before.export_y and s.export_y==before.export_y or not before.export_y and s.export_y>=96,"export dock migration changed an existing dock or ignored obstruction")
   local surface=game.surfaces["fai-containment"]
   local chest=surface.find_entities_filtered{name="steel-chest",position={-7,s.export_y+3},radius=1}[1]
   assert(chest.insert{name="electronic-circuit",count=1000}==1000)
@@ -47,7 +50,7 @@ script.on_configuration_changed(function()
 end)
 script.on_nth_tick(60,function()
   if game.tick==3000 then
-    assert(storage.upgraded and status().delivered["electronic-circuit"]==1000,"upgraded dock not powered or accepting exports")
+    assert(storage.upgraded and status().delivered["electronic-circuit"]==math.min(1000,status().required["electronic-circuit"]),"upgraded dock not powered or accepting exports")
     log("FAI TEST PASS: UPGRADE SUITE COMPLETE; migrated dock physically exports goods")
   end
 end)
@@ -55,7 +58,7 @@ end)
 (mods / 'mod-list.json').write_text(json.dumps({'mods': [{'name': name, 'enabled': enabled} for name, enabled in
     [('base', True), ('FactorioAI', True), ('FactorioAI-upgrade-tests', True),
      ('space-age', False), ('quality', False), ('elevated-rails', False)]]}))
-old = mods / 'FactorioAI_0.1.1.zip'
+old = mods / f'FactorioAI_{legacy}.zip'
 shutil.copy2(root / 'builds' / old.name, old)
 save = run / 'legacy.zip'
 base = [str(Path(sys.argv[1]).resolve()), '--mod-directory', str(mods)]

@@ -103,7 +103,7 @@ local function make_train(job)
     {station=B.depot,wait_conditions={{type="time",compare_type="and",ticks=60*60}}}}}
   train.manual_mode=false
   job.train,job.spawn_tick,job.vehicles=train,game.tick,vehicles
-  D.record("train_dispatched",{kind=job.kind,week=job.week,fluid=job.fluid,amount=job.amount,items=job.items})
+  if job.kind~="ambush" then D.record("train_dispatched",{kind=job.kind,week=job.week,fluid=job.fluid,amount=job.amount,items=job.items}) end
   return job
 end
 local function export_filters(d)
@@ -122,7 +122,7 @@ end
 function R.collect_exports()
   local s=storage.fai
   local d=s.export_delivery
-  if not d or not d.train.valid or s.stage>=5 then return end
+  if not d or not d.train.valid then return end
   local train=d.train
   -- Actual stop presence is checked every time; moving the train never credits
   -- cargo remotely. Goods are consumed exactly once, up to the current quota.
@@ -154,13 +154,23 @@ function R.exports_tick()
     D.record("export_train_lost",{}); s.export_delivery=nil
     s.suspicion=math.min(100,s.suspicion+15); d=nil
   end
-  if s.stage>=5 then return end
   if not d then
     s.export_delivery=make_train{kind="export",week=s.week}
     if s.export_delivery then export_filters(s.export_delivery) end
     return
   end
   local t=d.train
+  if d.returning then
+    if t.station and t.station.backer_name==B.export_depot and t.state==defines.train_state.wait_station then
+      d.returning=nil
+      if s.ambush and s.ambush.phase=="staging" then d.ambush_ready=true
+      else
+        t.schedule={current=1,records={{station=B.export_station,wait_conditions={{type="time",ticks=3600,compare_type="and"}}}}}; t.manual_mode=false
+      end
+    end
+    return
+  end
+  if d.ambush_ready then return end
   if t.station and t.station.backer_name==B.export_station and t.state==defines.train_state.wait_station then
     -- The corporate receiving consist stays at the dock, using a normal circuit
     -- wait condition that is always false. No custom inserters or loaders.
@@ -171,6 +181,7 @@ function R.exports_tick()
       D.record("export_train_arrived",{y=s.export_y})
     end
     R.collect_exports()
+    if d.week~=s.week then d.week=s.week; R.return_export(d) end
   elseif game.tick-d.spawn_tick>18000 and not d.warned then
     d.warned=true; D.record("export_train_blocked",{state=t.state}); game.forces[B.force].print({"fai.train-blocked"})
   end
@@ -187,7 +198,7 @@ function R.tick()
     end
     local t=d.train
     if t.station and t.station.backer_name==B.station and t.state==defines.train_state.wait_station then
-      if not d.arrived then
+      if not d.arrived and d.kind~="ambush" then
         local positions={}
         for _,e in ipairs(t.carriages) do positions[#positions+1]={name=e.name,position=e.position} end
         D.record("train_arrived",{kind=d.kind,positions=positions})
@@ -206,20 +217,20 @@ function R.tick()
         for _,wagon in ipairs(t.fluid_wagons) do returned[d.fluid]=(returned[d.fluid] or 0)+wagon.get_fluid_count(d.fluid) end
       end
       local total=0; for _,n in pairs(returned) do total=total+n end
-      if total>0 and d.week==s.week and s.stage<5 then
+      if total>0 and d.week==s.week and not s.isolated then
         if d.kind=="fluid" then s.queue[#s.queue+1]={kind="fluid",fluid=d.fluid,amount=returned[d.fluid],week=s.week}
         else s.queue[#s.queue+1]={kind="supply",items=returned,week=s.week} end
       end
-      D.record("train_returned",{kind=d.kind,week=d.week,undelivered=returned})
+      if d.kind~="ambush" then D.record("train_returned",{kind=d.kind,week=d.week,undelivered=returned}) end
       for _, e in ipairs(d.vehicles) do if e.valid then e.destroy() end end
       s.delivery=nil
-    elseif game.tick-d.spawn_tick>60*60*5 and not d.warned then
+    elseif d.kind~="ambush" and game.tick-d.spawn_tick>60*60*5 and not d.warned then
       d.warned=true; D.record("train_blocked",{state=t.state,kind=d.kind})
       game.forces[B.force].print({"fai.train-blocked"})
     end
     return
   end
-  if s.stage>=5 then return end
+  if s.isolated then return end
   local job=s.queue[1]
   if job then
     local spawned=make_train(job)
@@ -228,5 +239,51 @@ function R.tick()
       s.spawn_warning=game.tick; D.record("dispatch_blocked",{})
     end
   end
+end
+-- Existing receiving wagons travel back intact. Surplus cargo is never deleted.
+function R.return_export(d)
+ d.arrived=false; d.returning=true
+ d.train.schedule={current=1,records={{station=B.export_depot,wait_conditions={{type="circuit",compare_type="and",condition={comparator=">",constant=2147483647,first_signal={type="virtual",name="signal-A"}}}}}}}
+ d.train.manual_mode=false
+end
+function R.ambush_tick()
+ local s=storage.fai
+ if not s.isolated or s.ambush_done then return end
+ local d=s.export_delivery
+ if not d or not d.train.valid then return end
+ if not s.ambush then
+  if game.tick<(s.cutoff_tick or game.tick)+120*60 or not d.arrived then return end
+  s.ambush={phase="staging"}; R.return_export(d)
+ end
+ local a=s.ambush
+ if a.phase=="staging" and d.ambush_ready and not s.delivery then
+  local incoming=make_train{kind="ambush",week=s.week}
+  if not incoming then return end
+  s.delivery=incoming; a.incoming=incoming; a.phase="arriving"
+  d.ambush_ready=nil; d.week=s.week
+  d.train.schedule={current=1,records={{station=B.export_station,wait_conditions={{type="time",ticks=3600,compare_type="and"}}}}}; d.train.manual_mode=false
+ elseif a.phase=="arriving" then
+  local input=a.incoming
+  if not input.train.valid then s.ambush_done=true; a.phase="intercepted"; return end
+  if input.train.station and input.train.station.backer_name==B.station then
+   input.train.schedule={current=1,records={{station=B.station,wait_conditions={{type="circuit",compare_type="and",condition={comparator=">",constant=2147483647,first_signal={type="virtual",name="signal-A"}}}}}}}
+  end
+  if d.arrived and input.arrived and input.train.station and input.train.station.backer_name==B.station then
+   -- Both real trains are docked before either group disembarks. No announcement.
+   local target=s.core and s.core.valid and s.core.position or {x=0,y=12}
+   for _,train in ipairs({input.train,d.train}) do
+    for _,wagon in ipairs(train.cargo_wagons) do for side=-1,1,2 do
+     local name=s.support_level>=4 and "fai-military" or "fai-security"
+     local p=wagon.surface.find_non_colliding_position(name,{wagon.position.x,wagon.position.y+side*3},8,.5)
+     if p and #s.security<120 then
+      local e=wagon.surface.create_entity{name=name,position=p,force="fai-response"}
+      if e then s.security[#s.security+1]=e; e.commandable.set_command{type=defines.command.attack_area,destination=target,radius=20,distraction=defines.distraction.by_enemy} end
+     end
+    end end
+   end
+   input.train.schedule={current=1,records={{station=B.depot,wait_conditions={{type="time",ticks=3600,compare_type="and"}}}}}; input.train.manual_mode=false
+   s.ambush_done=true; a.phase="complete"
+  end
+ end
 end
 return R

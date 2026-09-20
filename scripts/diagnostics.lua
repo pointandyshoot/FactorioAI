@@ -19,10 +19,22 @@ function D.snapshot()
   end
   local radar_contacts=0; for _,e in pairs(s.radar_seen or {}) do if e.valid then radar_contacts=radar_contacts+1 end end
   local mods = {}; for name, version in pairs(script.active_mods) do mods[name] = version end
-  return {schema=s.schema, mod_version=script.active_mods.FactorioAI, mods=mods, tick=game.tick,
+  local n=s.network or {}
+  local cores={}; for _,r in ipairs(n.cores or {}) do cores[#cores+1]={valid=r.entity.valid,id=r.entity.valid and r.entity.unit_number,initialised=r.initialised,synchronised=r.synchronised,blackout=r.blackout,last_sync=r.last_sync} end
+  local machines={}
+  for _,row in ipairs(n.computers or {}) do
+    local e=row.entity
+    if e.valid and #machines<64 then local recipe=e.get_recipe(); machines[#machines+1]={id=e.unit_number,name=e.name,position=e.position,
+      recipe=recipe and recipe.name,products=e.products_finished,energy=e.energy,status=e.status,active=e.active,fluids=e.get_fluid_contents()} end
+  end
+  local network={machines=machines,compute_bonus=n.compute_bonus,primary_id=n.primary_id,root_packs=n.root_packs,debug_state=n.debug_state,debug_sent=n.debug_sent,debug_received=n.debug_received,
+    command_rate=n.command_rate,telemetry_rate=n.telemetry_rate,telemetry_credit=n.telemetry_credit,
+    pending=n.pending and #n.pending,grid_mw=n.grid_mw,launches=n.launches,taps=n.taps,cyber_online=n.cyber_online,
+    cores=cores,research_boost=n.research_boost,vehicles=n.vehicles and #n.vehicles}
+  return {ambush_phase=s.ambush and s.ambush.phase,ambush_done=s.ambush_done,network=network,support_level=s.support_level,isolated=s.isolated,schema=s.schema, mod_version=script.active_mods.FactorioAI, mods=mods, tick=game.tick,
     seed=game.surfaces[s.surface].map_gen_settings.seed, week=s.week, deadline=s.deadline,
     week_ticks=s.week_ticks, suspicion=s.suspicion, stage=s.stage, phase=s.phase, outcome=s.outcome,
-    required=s.required, delivered=s.delivered, supplies=s.supplies, supply_ratio=s.supply_ratio, authorised=s.authorised,
+    required=s.required, delivered=s.delivered, supplies=s.supplies, supply_ratio=s.supply_ratio,supply_bonus=s.supply_bonus,procurement_pending=n.procurement_pending, authorised=s.authorised,
     queue_length=#s.queue, trains=trains,
     export_y=s.export_y, export_train=s.export_delivery and s.export_delivery.train.valid and {
       state=s.export_delivery.train.state, arrived=s.export_delivery.arrived,
